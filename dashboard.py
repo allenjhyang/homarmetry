@@ -587,6 +587,12 @@ DASHBOARD_HTML = r"""
   .nav h1 span { color: var(--text-accent); }
   .theme-toggle { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; padding: 8px 12px; color: var(--text-tertiary); cursor: pointer; font-size: 16px; margin-left: 12px; transition: all 0.15s; }
   .theme-toggle:hover { background: var(--button-hover); color: var(--text-secondary); }
+  
+  /* === Zoom Controls === */
+  .zoom-controls { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
+  .zoom-btn { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 6px; width: 28px; height: 28px; color: var(--text-tertiary); cursor: pointer; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+  .zoom-btn:hover { background: var(--button-hover); color: var(--text-secondary); }
+  .zoom-level { font-size: 11px; color: var(--text-muted); font-weight: 600; min-width: 36px; text-align: center; }
   .nav-tabs { display: flex; gap: 4px; margin-left: auto; }
   .nav-tab { padding: 8px 16px; border-radius: 8px; background: transparent; border: 1px solid var(--border-primary); color: var(--text-tertiary); cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; transition: all 0.15s; }
   .nav-tab:hover { background: var(--bg-hover); color: var(--text-secondary); }
@@ -787,6 +793,9 @@ DASHBOARD_HTML = r"""
   .card:hover { transform: translateY(-2px); transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
   .card[onclick] { cursor: pointer; }
 
+  /* === Zoom Wrapper === */
+  .zoom-wrapper { transform-origin: top left; transition: transform 0.3s ease; }
+
   @media (max-width: 768px) {
     .nav { padding: 10px 12px; gap: 8px; }
     .nav h1 { font-size: 16px; }
@@ -813,13 +822,24 @@ DASHBOARD_HTML = r"""
     .flow-node rect { stroke-width: 1 !important; }
     .flow-node.active rect { stroke-width: 1.5 !important; }
     .brain-group { animation-duration: 1.8s; } /* Faster on mobile */
+    
+    /* Mobile zoom controls */
+    .zoom-controls { margin-left: 8px; gap: 2px; }
+    .zoom-btn { width: 24px; height: 24px; font-size: 14px; }
+    .zoom-level { min-width: 32px; font-size: 10px; }
   }
 </style>
 </head>
 <body>
+<div class="zoom-wrapper" id="zoom-wrapper">
 <div class="nav">
   <h1><span>🦞</span> OpenClaw</h1>
   <div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</div>
+  <div class="zoom-controls">
+    <button class="zoom-btn" onclick="zoomOut()" title="Zoom out (Ctrl/Cmd + -)">−</button>
+    <span class="zoom-level" id="zoom-level" title="Current zoom level. Ctrl/Cmd + 0 to reset">100%</span>
+    <button class="zoom-btn" onclick="zoomIn()" title="Zoom in (Ctrl/Cmd + +)">+</button>
+  </div>
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="switchTab('flow')">🌊 Flow</div>
     <div class="nav-tab" onclick="switchTab('overview')">Overview</div>
@@ -1246,6 +1266,70 @@ function initTheme() {
     toggle.title = 'Switch to light theme';
   }
 }
+
+// === Zoom Controls ===
+let currentZoom = 1.0;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 2.0;
+const ZOOM_STEP = 0.1;
+
+function initZoom() {
+  const savedZoom = localStorage.getItem('openclaw-zoom');
+  if (savedZoom) {
+    currentZoom = parseFloat(savedZoom);
+  }
+  applyZoom();
+}
+
+function applyZoom() {
+  const wrapper = document.getElementById('zoom-wrapper');
+  const levelDisplay = document.getElementById('zoom-level');
+  
+  if (wrapper) {
+    wrapper.style.transform = `scale(${currentZoom})`;
+  }
+  if (levelDisplay) {
+    levelDisplay.textContent = Math.round(currentZoom * 100) + '%';
+  }
+  
+  // Save to localStorage
+  localStorage.setItem('openclaw-zoom', currentZoom.toString());
+}
+
+function zoomIn() {
+  if (currentZoom < MAX_ZOOM) {
+    currentZoom = Math.min(MAX_ZOOM, currentZoom + ZOOM_STEP);
+    applyZoom();
+  }
+}
+
+function zoomOut() {
+  if (currentZoom > MIN_ZOOM) {
+    currentZoom = Math.max(MIN_ZOOM, currentZoom - ZOOM_STEP);
+    applyZoom();
+  }
+}
+
+function resetZoom() {
+  currentZoom = 1.0;
+  applyZoom();
+}
+
+// Keyboard shortcuts for zoom
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+    if (e.key === '=' || e.key === '+') {
+      e.preventDefault();
+      zoomIn();
+    } else if (e.key === '-') {
+      e.preventDefault();
+      zoomOut();
+    } else if (e.key === '0') {
+      e.preventDefault();
+      resetZoom();
+    }
+  }
+});
 
 function timeAgo(ms) {
   if (!ms) return 'never';
@@ -2277,9 +2361,10 @@ function processFlowEvent(line) {
   }
 }
 
-// Initialize theme on page load
+// Initialize theme and zoom on page load
 document.addEventListener('DOMContentLoaded', function() {
   initTheme();
+  initZoom();
   // Initialize Flow page by default
   initFlow();
   
@@ -2287,6 +2372,7 @@ document.addEventListener('DOMContentLoaded', function() {
   loadAll();
 });
 </script>
+</div> <!-- end zoom-wrapper -->
 </body>
 </html>
 """
