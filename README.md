@@ -30,6 +30,7 @@ Opens at **http://localhost:8900** — auto-detects your OpenClaw workspace.
 
 | Tab | What it shows |
 |-----|--------------|
+| **🌊 Flow** | **Real-time animated SVG** showing data flow: You → Channels → Gateway → Brain → Tools → Infrastructure |
 | **Overview** | Model, sessions, crons, tokens, memory, **❤️ health checks** (auto-refresh via SSE), **🔥 activity heatmap** (GitHub-style), recent logs |
 | **📊 Usage** | **Token/cost tracking** — bar chart of tokens per day (14 days), today/week/month totals, cost breakdown. **With OTLP**: real token counts, actual cost, avg run duration, messages processed, model breakdown |
 | **Sessions** | All active agent sessions with model, channel, token usage, last activity |
@@ -37,7 +38,6 @@ Opens at **http://localhost:8900** — auto-detects your OpenClaw workspace.
 | **Logs** | Parsed JSON logs with color-coded levels, configurable line count, **real-time SSE streaming** |
 | **Memory** | Clickable file browser for SOUL.md, MEMORY.md, AGENTS.md, daily memory files |
 | **📜 Transcripts** | **Session transcript viewer** — browse .jsonl files, click to see chat-bubble conversation view with color-coded roles, expand/collapse |
-| **Flow** | **Real-time animated SVG** showing data flow: You → Channels → Gateway → Brain → Tools → Infrastructure |
 
 ### Flow Visualization
 
