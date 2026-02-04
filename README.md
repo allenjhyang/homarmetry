@@ -4,7 +4,7 @@
 
 Real-time observability dashboard for [OpenClaw](https://github.com/nicobailon/openclaw)/[Moltbot](https://github.com/nicobailon/moltbot) AI agents. One file. Zero config. Just run it.
 
-![Overview](screenshots/overview.jpg)
+![Overview](https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/overview.jpg)
 
 ---
 
@@ -30,16 +30,16 @@ Opens at **http://localhost:8900** — auto-detects your OpenClaw workspace.
 
 <table>
 <tr>
-<td align="center"><strong>Overview</strong><br><img src="screenshots/overview.jpg" width="380"/></td>
-<td align="center"><strong>Flow Visualization</strong><br><img src="screenshots/flow.jpg" width="380"/></td>
+<td align="center"><strong>Overview</strong><br><img src="https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/overview.jpg" width="380"/></td>
+<td align="center"><strong>Flow Visualization</strong><br><img src="https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/flow.jpg" width="380"/></td>
 </tr>
 <tr>
-<td align="center"><strong>Sessions</strong><br><img src="screenshots/sessions.jpg" width="380"/></td>
-<td align="center"><strong>Cron Jobs</strong><br><img src="screenshots/crons.jpg" width="380"/></td>
+<td align="center"><strong>Sessions</strong><br><img src="https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/sessions.jpg" width="380"/></td>
+<td align="center"><strong>Cron Jobs</strong><br><img src="https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/crons.jpg" width="380"/></td>
 </tr>
 <tr>
-<td align="center"><strong>Live Logs</strong><br><img src="screenshots/logs.jpg" width="380"/></td>
-<td align="center"><strong>Memory Files</strong><br><img src="screenshots/memory.jpg" width="380"/></td>
+<td align="center"><strong>Live Logs</strong><br><img src="https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/logs.jpg" width="380"/></td>
+<td align="center"><strong>Memory Files</strong><br><img src="https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/memory.jpg" width="380"/></td>
 </tr>
 </table>
 
