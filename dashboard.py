@@ -34,13 +34,14 @@ app = Flask(__name__)
 WORKSPACE = None
 MEMORY_DIR = None
 LOG_DIR = None
+SESSIONS_DIR = None
 USER_NAME = None
 CET = timezone(timedelta(hours=1))
 
 
 def detect_config(args=None):
     """Auto-detect OpenClaw/Moltbot paths, with CLI and env overrides."""
-    global WORKSPACE, MEMORY_DIR, LOG_DIR, USER_NAME
+    global WORKSPACE, MEMORY_DIR, LOG_DIR, SESSIONS_DIR, USER_NAME
 
     # 1. Workspace — where agent files live (SOUL.md, MEMORY.md, memory/, etc.)
     if args and args.workspace:
@@ -81,7 +82,27 @@ def detect_config(args=None):
         candidates = ["/tmp/moltbot", "/tmp/openclaw", os.path.expanduser("~/.clawdbot/logs")]
         LOG_DIR = next((d for d in candidates if os.path.isdir(d)), "/tmp/moltbot")
 
-    # 3. User name (shown in Flow visualization)
+    # 3. Sessions directory (transcript .jsonl files)
+    if args and getattr(args, 'sessions_dir', None):
+        SESSIONS_DIR = os.path.expanduser(args.sessions_dir)
+    elif os.environ.get("OPENCLAW_SESSIONS_DIR"):
+        SESSIONS_DIR = os.path.expanduser(os.environ["OPENCLAW_SESSIONS_DIR"])
+    else:
+        candidates = [
+            os.path.expanduser('~/.clawdbot/agents/main/sessions'),
+            os.path.join(WORKSPACE, 'sessions') if WORKSPACE else None,
+            os.path.expanduser('~/.clawdbot/sessions'),
+        ]
+        # Also scan ~/.clawdbot/agents/*/sessions/
+        agents_base = os.path.expanduser('~/.clawdbot/agents')
+        if os.path.isdir(agents_base):
+            for agent in os.listdir(agents_base):
+                p = os.path.join(agents_base, agent, 'sessions')
+                if p not in candidates:
+                    candidates.append(p)
+        SESSIONS_DIR = next((d for d in candidates if d and os.path.isdir(d)), candidates[0] if candidates else None)
+
+    # 4. User name (shown in Flow visualization)
     if args and args.name:
         USER_NAME = args.name
     elif os.environ.get("OPENCLAW_USER"):
@@ -261,6 +282,68 @@ DASHBOARD_HTML = r"""
   .flow-path.glow-cyan { stroke: #40a0b0; filter: drop-shadow(0 0 6px rgba(64,160,176,0.6)); stroke-dasharray: none; opacity: 1; }
   .flow-path.glow-purple { stroke: #b080ff; filter: drop-shadow(0 0 6px rgba(176,128,255,0.6)); }
 
+  /* === Activity Heatmap === */
+  .heatmap-wrap { overflow-x: auto; padding: 8px 0; }
+  .heatmap-grid { display: grid; grid-template-columns: 60px repeat(24, 1fr); gap: 2px; min-width: 650px; }
+  .heatmap-label { font-size: 11px; color: #666; display: flex; align-items: center; padding-right: 8px; justify-content: flex-end; }
+  .heatmap-hour-label { font-size: 10px; color: #555; text-align: center; padding-bottom: 4px; }
+  .heatmap-cell { aspect-ratio: 1; border-radius: 3px; min-height: 16px; transition: all 0.15s; cursor: default; position: relative; }
+  .heatmap-cell:hover { transform: scale(1.3); z-index: 2; outline: 1px solid #f0c040; }
+  .heatmap-cell[title]:hover::after { content: attr(title); position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: #222; color: #eee; padding: 3px 8px; border-radius: 4px; font-size: 10px; white-space: nowrap; z-index: 10; pointer-events: none; }
+  .heatmap-legend { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11px; color: #666; }
+  .heatmap-legend-cell { width: 14px; height: 14px; border-radius: 3px; }
+
+  /* === Health Checks === */
+  .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .health-item { background: #141428; border: 1px solid #2a2a4a; border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; transition: border-color 0.3s; }
+  .health-item.healthy { border-left: 3px solid #27ae60; }
+  .health-item.warning { border-left: 3px solid #f0c040; }
+  .health-item.critical { border-left: 3px solid #e74c3c; }
+  .health-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .health-dot.green { background: #27ae60; box-shadow: 0 0 8px rgba(39,174,96,0.5); }
+  .health-dot.yellow { background: #f0c040; box-shadow: 0 0 8px rgba(240,192,64,0.5); }
+  .health-dot.red { background: #e74c3c; box-shadow: 0 0 8px rgba(231,76,60,0.5); }
+  .health-info { flex: 1; }
+  .health-name { font-size: 13px; font-weight: 600; color: #ccc; }
+  .health-detail { font-size: 11px; color: #666; margin-top: 2px; }
+
+  /* === Usage/Token Charts === */
+  .usage-chart { display: flex; align-items: flex-end; gap: 6px; height: 200px; padding: 16px 8px 32px; position: relative; }
+  .usage-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; position: relative; }
+  .usage-bar { width: 100%; min-width: 20px; max-width: 48px; border-radius: 4px 4px 0 0; background: linear-gradient(180deg, #f0c040, #c09020); transition: height 0.4s ease; position: relative; cursor: default; }
+  .usage-bar:hover { filter: brightness(1.25); }
+  .usage-bar-label { font-size: 9px; color: #555; margin-top: 6px; text-align: center; white-space: nowrap; }
+  .usage-bar-value { font-size: 9px; color: #888; text-align: center; position: absolute; top: -16px; width: 100%; white-space: nowrap; }
+  .usage-grid-line { position: absolute; left: 0; right: 0; border-top: 1px dashed #1a1a30; }
+  .usage-grid-label { position: absolute; right: 100%; padding-right: 8px; font-size: 10px; color: #444; white-space: nowrap; }
+  .usage-table { width: 100%; border-collapse: collapse; }
+  .usage-table th { text-align: left; font-size: 12px; color: #666; padding: 8px 12px; border-bottom: 1px solid #2a2a4a; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .usage-table td { padding: 8px 12px; font-size: 13px; color: #ccc; border-bottom: 1px solid #1a1a30; }
+  .usage-table tr:last-child td { border-bottom: none; font-weight: 700; color: #f0c040; }
+
+  /* === Transcript Viewer === */
+  .transcript-item { padding: 12px 16px; border-bottom: 1px solid #1a1a30; cursor: pointer; transition: background 0.15s; display: flex; justify-content: space-between; align-items: center; }
+  .transcript-item:hover { background: #1a1a35; }
+  .transcript-item:last-child { border-bottom: none; }
+  .transcript-name { font-weight: 600; font-size: 14px; color: #60a0ff; }
+  .transcript-meta-row { font-size: 12px; color: #666; margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .transcript-viewer-meta { background: #141428; border: 1px solid #2a2a4a; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .transcript-viewer-meta .stat-row { padding: 6px 0; }
+  .chat-messages { display: flex; flex-direction: column; gap: 10px; padding: 8px 0; }
+  .chat-msg { max-width: 85%; padding: 12px 16px; border-radius: 16px; font-size: 13px; line-height: 1.5; word-wrap: break-word; position: relative; }
+  .chat-msg.user { background: #1a2a4a; border: 1px solid #2a4a7a; color: #c0d8ff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .chat-msg.assistant { background: #1a3a2a; border: 1px solid #2a5a3a; color: #c0ffc0; align-self: flex-start; border-bottom-left-radius: 4px; }
+  .chat-msg.system { background: #2a2a1a; border: 1px solid #4a4a2a; color: #f0e0a0; align-self: center; font-size: 12px; font-style: italic; max-width: 90%; }
+  .chat-msg.tool { background: #1a1a24; border: 1px solid #2a2a3a; color: #a0a0b0; align-self: flex-start; font-family: 'SF Mono', monospace; font-size: 12px; border-left: 3px solid #555; }
+  .chat-role { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; opacity: 0.7; }
+  .chat-ts { font-size: 10px; color: #555; margin-top: 6px; text-align: right; }
+  .chat-expand { display: inline-block; color: #f0c040; font-size: 11px; cursor: pointer; margin-top: 4px; }
+  .chat-expand:hover { text-decoration: underline; }
+  .chat-content-truncated { max-height: 200px; overflow: hidden; position: relative; }
+  .chat-content-truncated::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 40px; background: linear-gradient(transparent, rgba(26,42,74,0.9)); pointer-events: none; }
+  .chat-msg.assistant .chat-content-truncated::after { background: linear-gradient(transparent, rgba(26,58,42,0.9)); }
+  .chat-msg.tool .chat-content-truncated::after { background: linear-gradient(transparent, rgba(26,26,36,0.9)); }
+
   @media (max-width: 768px) {
     .nav { padding: 10px 12px; gap: 8px; }
     .nav h1 { font-size: 16px; }
@@ -272,6 +355,9 @@ DASHBOARD_HTML = r"""
     .flow-stat { min-width: 70px; padding: 6px 10px; }
     .flow-stat-value { font-size: 16px; }
     #flow-svg { min-width: 600px; }
+    .heatmap-grid { min-width: 500px; }
+    .chat-msg { max-width: 95%; }
+    .usage-chart { height: 150px; }
   }
 </style>
 </head>
@@ -280,10 +366,12 @@ DASHBOARD_HTML = r"""
   <h1><span>🦞</span> OpenClaw</h1>
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
+    <div class="nav-tab" onclick="switchTab('usage')">📊 Usage</div>
     <div class="nav-tab" onclick="switchTab('sessions')">Sessions</div>
     <div class="nav-tab" onclick="switchTab('crons')">Crons</div>
     <div class="nav-tab" onclick="switchTab('logs')">Logs</div>
     <div class="nav-tab" onclick="switchTab('memory')">Memory</div>
+    <div class="nav-tab" onclick="switchTab('transcripts')">📜 Transcripts</div>
     <div class="nav-tab" onclick="switchTab('flow')">Flow</div>
   </div>
 </div>
@@ -327,8 +415,52 @@ DASHBOARD_HTML = r"""
       <div id="ov-system"></div>
     </div>
   </div>
+  <div class="section-title">❤️ System Health</div>
+  <div class="health-grid" id="health-grid">
+    <div class="health-item" id="health-gateway"><div class="health-dot" id="health-dot-gateway"></div><div class="health-info"><div class="health-name">Gateway</div><div class="health-detail" id="health-detail-gateway">Checking...</div></div></div>
+    <div class="health-item" id="health-disk"><div class="health-dot" id="health-dot-disk"></div><div class="health-info"><div class="health-name">Disk Space</div><div class="health-detail" id="health-detail-disk">Checking...</div></div></div>
+    <div class="health-item" id="health-memory"><div class="health-dot" id="health-dot-memory"></div><div class="health-info"><div class="health-name">Memory</div><div class="health-detail" id="health-detail-memory">Checking...</div></div></div>
+    <div class="health-item" id="health-uptime"><div class="health-dot" id="health-dot-uptime"></div><div class="health-info"><div class="health-name">Uptime</div><div class="health-detail" id="health-detail-uptime">Checking...</div></div></div>
+  </div>
+
+  <div class="section-title">🔥 Activity Heatmap <span style="font-size:12px;color:#666;font-weight:400;">(7 days)</span></div>
+  <div class="card">
+    <div class="heatmap-wrap">
+      <div class="heatmap-grid" id="heatmap-grid">Loading...</div>
+    </div>
+    <div class="heatmap-legend" id="heatmap-legend"></div>
+  </div>
+
   <div class="section-title">📋 Recent Logs</div>
   <div class="log-viewer" id="ov-logs" style="max-height:300px;">Loading...</div>
+</div>
+
+<!-- USAGE -->
+<div class="page" id="page-usage">
+  <div class="refresh-bar"><button class="refresh-btn" onclick="loadUsage()">↻ Refresh</button></div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-title"><span class="icon">📊</span> Today</div>
+      <div class="card-value" id="usage-today">—</div>
+      <div class="card-sub" id="usage-today-cost"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📅</span> This Week</div>
+      <div class="card-value" id="usage-week">—</div>
+      <div class="card-sub" id="usage-week-cost"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📆</span> This Month</div>
+      <div class="card-value" id="usage-month">—</div>
+      <div class="card-sub" id="usage-month-cost"></div>
+    </div>
+  </div>
+  <div class="section-title">📊 Token Usage (14 days)</div>
+  <div class="card">
+    <div class="usage-chart" id="usage-chart">Loading...</div>
+  </div>
+  <div class="section-title">💰 Cost Breakdown</div>
+  <div class="card"><table class="usage-table" id="usage-cost-table"><tbody><tr><td colspan="3" style="color:#666;">Loading...</td></tr></tbody></table></div>
 </div>
 
 <!-- SESSIONS -->
@@ -369,6 +501,19 @@ DASHBOARD_HTML = r"""
       <button class="file-viewer-close" onclick="closeFileViewer()">✕ Close</button>
     </div>
     <div class="file-viewer-content" id="file-viewer-content"></div>
+  </div>
+</div>
+
+<!-- TRANSCRIPTS -->
+<div class="page" id="page-transcripts">
+  <div class="refresh-bar">
+    <button class="refresh-btn" onclick="loadTranscripts()">↻ Refresh</button>
+    <button class="refresh-btn" id="transcript-back-btn" style="display:none" onclick="showTranscriptList()">← Back to list</button>
+  </div>
+  <div class="card" id="transcript-list">Loading...</div>
+  <div id="transcript-viewer" style="display:none">
+    <div class="transcript-viewer-meta" id="transcript-meta"></div>
+    <div class="chat-messages" id="transcript-messages"></div>
   </div>
 </div>
 
@@ -538,10 +683,12 @@ function switchTab(name) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   event.target.classList.add('active');
+  if (name === 'usage') loadUsage();
   if (name === 'sessions') loadSessions();
   if (name === 'crons') loadCrons();
   if (name === 'logs') loadLogs();
   if (name === 'memory') loadMemory();
+  if (name === 'transcripts') loadTranscripts();
   if (name === 'flow') initFlow();
 }
 
@@ -584,6 +731,10 @@ async function loadAll() {
 
   renderLogs('ov-logs', logs.lines);
   document.getElementById('refresh-time').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+  // Load health checks and heatmap
+  loadHealth();
+  loadHeatmap();
 
   // Update flow infra details
   if (overview.infra) {
@@ -717,6 +868,191 @@ async function loadMemory() {
     html += '</div>';
   });
   document.getElementById('memory-list').innerHTML = html || 'No memory files';
+}
+
+// ===== Health Checks =====
+async function loadHealth() {
+  try {
+    var data = await fetch('/api/health').then(r => r.json());
+    data.checks.forEach(function(c) {
+      var dotEl = document.getElementById('health-dot-' + c.id);
+      var detailEl = document.getElementById('health-detail-' + c.id);
+      var itemEl = document.getElementById('health-' + c.id);
+      if (dotEl) { dotEl.className = 'health-dot ' + c.color; }
+      if (detailEl) { detailEl.textContent = c.detail; }
+      if (itemEl) { itemEl.className = 'health-item ' + c.status; }
+    });
+  } catch(e) {}
+}
+
+// Health SSE auto-refresh
+var healthStream = null;
+function startHealthStream() {
+  if (healthStream) healthStream.close();
+  healthStream = new EventSource('/api/health-stream');
+  healthStream.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      data.checks.forEach(function(c) {
+        var dotEl = document.getElementById('health-dot-' + c.id);
+        var detailEl = document.getElementById('health-detail-' + c.id);
+        var itemEl = document.getElementById('health-' + c.id);
+        if (dotEl) { dotEl.className = 'health-dot ' + c.color; }
+        if (detailEl) { detailEl.textContent = c.detail; }
+        if (itemEl) { itemEl.className = 'health-item ' + c.status; }
+      });
+    } catch(ex) {}
+  };
+  healthStream.onerror = function() { setTimeout(startHealthStream, 30000); };
+}
+startHealthStream();
+
+// ===== Activity Heatmap =====
+async function loadHeatmap() {
+  try {
+    var data = await fetch('/api/heatmap').then(r => r.json());
+    var grid = document.getElementById('heatmap-grid');
+    var maxVal = Math.max(1, data.max);
+    var html = '<div class="heatmap-label"></div>';
+    for (var h = 0; h < 24; h++) { html += '<div class="heatmap-hour-label">' + (h < 10 ? '0' : '') + h + '</div>'; }
+    data.days.forEach(function(day) {
+      html += '<div class="heatmap-label">' + day.label + '</div>';
+      day.hours.forEach(function(val, hi) {
+        var intensity = val / maxVal;
+        var color;
+        if (val === 0) color = '#12122a';
+        else if (intensity < 0.25) color = '#1a3a2a';
+        else if (intensity < 0.5) color = '#2a6a3a';
+        else if (intensity < 0.75) color = '#4a9a2a';
+        else color = '#6adb3a';
+        html += '<div class="heatmap-cell" style="background:' + color + ';" title="' + day.label + ' ' + (hi < 10 ? '0' : '') + hi + ':00 — ' + val + ' events"></div>';
+      });
+    });
+    grid.innerHTML = html;
+    var legend = document.getElementById('heatmap-legend');
+    legend.innerHTML = 'Less <div class="heatmap-legend-cell" style="background:#12122a"></div><div class="heatmap-legend-cell" style="background:#1a3a2a"></div><div class="heatmap-legend-cell" style="background:#2a6a3a"></div><div class="heatmap-legend-cell" style="background:#4a9a2a"></div><div class="heatmap-legend-cell" style="background:#6adb3a"></div> More';
+  } catch(e) {
+    document.getElementById('heatmap-grid').innerHTML = '<span style="color:#555">No activity data</span>';
+  }
+}
+
+// ===== Usage / Token Tracking =====
+async function loadUsage() {
+  try {
+    var data = await fetch('/api/usage').then(r => r.json());
+    function fmtTokens(n) { return n >= 1000000 ? (n/1000000).toFixed(1) + 'M' : n >= 1000 ? (n/1000).toFixed(0) + 'K' : String(n); }
+    function fmtCost(c) { return c >= 0.01 ? '$' + c.toFixed(2) : c > 0 ? '<$0.01' : '$0.00'; }
+    document.getElementById('usage-today').textContent = fmtTokens(data.today);
+    document.getElementById('usage-today-cost').textContent = '≈ ' + fmtCost(data.todayCost);
+    document.getElementById('usage-week').textContent = fmtTokens(data.week);
+    document.getElementById('usage-week-cost').textContent = '≈ ' + fmtCost(data.weekCost);
+    document.getElementById('usage-month').textContent = fmtTokens(data.month);
+    document.getElementById('usage-month-cost').textContent = '≈ ' + fmtCost(data.monthCost);
+    // Bar chart
+    var maxTokens = Math.max.apply(null, data.days.map(function(d){return d.tokens;})) || 1;
+    var chartHtml = '';
+    data.days.forEach(function(d) {
+      var pct = Math.max(1, (d.tokens / maxTokens) * 100);
+      var label = d.date.substring(5);
+      var val = d.tokens >= 1000 ? (d.tokens/1000).toFixed(0) + 'K' : d.tokens;
+      chartHtml += '<div class="usage-bar-wrap"><div class="usage-bar" style="height:' + pct + '%"><div class="usage-bar-value">' + (d.tokens > 0 ? val : '') + '</div></div><div class="usage-bar-label">' + label + '</div></div>';
+    });
+    document.getElementById('usage-chart').innerHTML = chartHtml;
+    // Cost table
+    var tableHtml = '<thead><tr><th>Period</th><th>Tokens</th><th>Est. Cost</th></tr></thead><tbody>';
+    tableHtml += '<tr><td>Today</td><td>' + fmtTokens(data.today) + '</td><td>' + fmtCost(data.todayCost) + '</td></tr>';
+    tableHtml += '<tr><td>This Week</td><td>' + fmtTokens(data.week) + '</td><td>' + fmtCost(data.weekCost) + '</td></tr>';
+    tableHtml += '<tr><td>This Month</td><td>' + fmtTokens(data.month) + '</td><td>' + fmtCost(data.monthCost) + '</td></tr>';
+    tableHtml += '</tbody>';
+    document.getElementById('usage-cost-table').innerHTML = tableHtml;
+  } catch(e) {
+    document.getElementById('usage-chart').innerHTML = '<span style="color:#555">No usage data available</span>';
+  }
+}
+
+// ===== Transcripts =====
+async function loadTranscripts() {
+  try {
+    var data = await fetch('/api/transcripts').then(r => r.json());
+    var html = '';
+    data.transcripts.forEach(function(t) {
+      html += '<div class="transcript-item" onclick="viewTranscript(\'' + escHtml(t.id) + '\')">';
+      html += '<div><div class="transcript-name">' + escHtml(t.name) + '</div>';
+      html += '<div class="transcript-meta-row">';
+      html += '<span>' + t.messages + ' messages</span>';
+      html += '<span>' + (t.size > 1024 ? (t.size/1024).toFixed(1) + ' KB' : t.size + ' B') + '</span>';
+      html += '<span>' + timeAgo(t.modified) + '</span>';
+      html += '</div></div>';
+      html += '<span style="color:#444;font-size:18px;">▸</span>';
+      html += '</div>';
+    });
+    document.getElementById('transcript-list').innerHTML = html || '<div style="padding:16px;color:#666;">No transcript files found</div>';
+    document.getElementById('transcript-list').style.display = '';
+    document.getElementById('transcript-viewer').style.display = 'none';
+    document.getElementById('transcript-back-btn').style.display = 'none';
+  } catch(e) {
+    document.getElementById('transcript-list').innerHTML = '<div style="padding:16px;color:#666;">Failed to load transcripts</div>';
+  }
+}
+
+function showTranscriptList() {
+  document.getElementById('transcript-list').style.display = '';
+  document.getElementById('transcript-viewer').style.display = 'none';
+  document.getElementById('transcript-back-btn').style.display = 'none';
+}
+
+async function viewTranscript(sessionId) {
+  document.getElementById('transcript-list').style.display = 'none';
+  document.getElementById('transcript-viewer').style.display = '';
+  document.getElementById('transcript-back-btn').style.display = '';
+  document.getElementById('transcript-messages').innerHTML = '<div style="padding:20px;color:#666;">Loading transcript...</div>';
+  try {
+    var data = await fetch('/api/transcript/' + encodeURIComponent(sessionId)).then(r => r.json());
+    // Metadata
+    var metaHtml = '<div class="stat-row"><span class="stat-label">Session</span><span class="stat-val">' + escHtml(data.name) + '</span></div>';
+    metaHtml += '<div class="stat-row"><span class="stat-label">Messages</span><span class="stat-val">' + data.messageCount + '</span></div>';
+    if (data.model) metaHtml += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-val"><span class="badge model">' + escHtml(data.model) + '</span></span></div>';
+    if (data.totalTokens) metaHtml += '<div class="stat-row"><span class="stat-label">Tokens</span><span class="stat-val"><span class="badge tokens">' + (data.totalTokens/1000).toFixed(0) + 'K</span></span></div>';
+    if (data.duration) metaHtml += '<div class="stat-row"><span class="stat-label">Duration</span><span class="stat-val">' + data.duration + '</span></div>';
+    document.getElementById('transcript-meta').innerHTML = metaHtml;
+    // Messages
+    var msgsHtml = '';
+    data.messages.forEach(function(m, idx) {
+      var role = m.role || 'unknown';
+      var cls = role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : role === 'system' ? 'system' : 'tool';
+      var content = m.content || '';
+      var needsTruncate = content.length > 800;
+      var displayContent = needsTruncate ? content.substring(0, 800) : content;
+      msgsHtml += '<div class="chat-msg ' + cls + '">';
+      msgsHtml += '<div class="chat-role">' + escHtml(role) + '</div>';
+      if (needsTruncate) {
+        msgsHtml += '<div class="chat-content-truncated" id="msg-' + idx + '-short">' + escHtml(displayContent) + '</div>';
+        msgsHtml += '<div id="msg-' + idx + '-full" style="display:none;white-space:pre-wrap;">' + escHtml(content) + '</div>';
+        msgsHtml += '<div class="chat-expand" onclick="toggleMsg(' + idx + ')">Show more (' + content.length + ' chars)</div>';
+      } else {
+        msgsHtml += '<div style="white-space:pre-wrap;">' + escHtml(content) + '</div>';
+      }
+      if (m.timestamp) msgsHtml += '<div class="chat-ts">' + new Date(m.timestamp).toLocaleString() + '</div>';
+      msgsHtml += '</div>';
+    });
+    document.getElementById('transcript-messages').innerHTML = msgsHtml || '<div style="color:#555;padding:16px;">No messages in this transcript</div>';
+  } catch(e) {
+    document.getElementById('transcript-messages').innerHTML = '<div style="color:#e74c3c;padding:16px;">Failed to load transcript</div>';
+  }
+}
+
+function toggleMsg(idx) {
+  var short = document.getElementById('msg-' + idx + '-short');
+  var full = document.getElementById('msg-' + idx + '-full');
+  if (short.style.display === 'none') {
+    short.style.display = '';
+    full.style.display = 'none';
+    short.nextElementSibling.nextElementSibling.textContent = 'Show more';
+  } else {
+    short.style.display = 'none';
+    full.style.display = '';
+    event.target.textContent = 'Show less';
+  }
 }
 
 loadAll();
@@ -1216,13 +1552,349 @@ def api_view_file():
         return jsonify({'error': str(e)}), 500
 
 
+# ── New Feature APIs ────────────────────────────────────────────────────
+
+@app.route('/api/usage')
+def api_usage():
+    """Token/cost tracking — aggregated from session JSONL files."""
+    sessions_dir = SESSIONS_DIR or os.path.expanduser('~/.clawdbot/agents/main/sessions')
+    daily_tokens = {}
+    if os.path.isdir(sessions_dir):
+        for fname in os.listdir(sessions_dir):
+            if not fname.endswith('.jsonl'):
+                continue
+            fpath = os.path.join(sessions_dir, fname)
+            try:
+                fmtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                with open(fpath, 'r') as f:
+                    for line in f:
+                        try:
+                            obj = json.loads(line.strip())
+                            # Extract tokens from various possible fields
+                            tokens = 0
+                            usage = obj.get('usage') or obj.get('tokens_used') or {}
+                            if isinstance(usage, dict):
+                                tokens = (usage.get('total_tokens') or usage.get('totalTokens')
+                                          or (usage.get('input_tokens', 0) + usage.get('output_tokens', 0))
+                                          or 0)
+                            elif isinstance(usage, (int, float)):
+                                tokens = int(usage)
+                            # If no explicit tokens, estimate from content length
+                            if not tokens:
+                                content = obj.get('content', '')
+                                if isinstance(content, str) and len(content) > 0:
+                                    tokens = max(1, len(content) // 4)  # rough: 1 token ≈ 4 chars
+                                elif isinstance(content, list):
+                                    total_len = sum(len(str(c.get('text', ''))) for c in content if isinstance(c, dict))
+                                    tokens = max(1, total_len // 4) if total_len else 0
+                            # Get date
+                            ts = obj.get('timestamp') or obj.get('time') or obj.get('created_at')
+                            if ts:
+                                if isinstance(ts, (int, float)):
+                                    dt = datetime.fromtimestamp(ts / 1000 if ts > 1e12 else ts)
+                                else:
+                                    try:
+                                        dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+                                    except Exception:
+                                        dt = fmtime
+                            else:
+                                dt = fmtime
+                            day = dt.strftime('%Y-%m-%d')
+                            if tokens > 0:
+                                daily_tokens[day] = daily_tokens.get(day, 0) + tokens
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+            except Exception:
+                pass
+
+    today = datetime.now()
+    days = []
+    for i in range(13, -1, -1):
+        d = today - timedelta(days=i)
+        ds = d.strftime('%Y-%m-%d')
+        days.append({'date': ds, 'tokens': daily_tokens.get(ds, 0)})
+
+    today_str = today.strftime('%Y-%m-%d')
+    week_start = (today - timedelta(days=today.weekday())).strftime('%Y-%m-%d')
+    month_start = today.strftime('%Y-%m-01')
+    today_tok = daily_tokens.get(today_str, 0)
+    week_tok = sum(v for k, v in daily_tokens.items() if k >= week_start)
+    month_tok = sum(v for k, v in daily_tokens.items() if k >= month_start)
+    # Cost estimates: Claude Opus ~$15/M in + $75/M out; average ~$30/M
+    cpt = 30.0 / 1_000_000
+    return jsonify({
+        'days': days, 'today': today_tok, 'week': week_tok, 'month': month_tok,
+        'todayCost': round(today_tok * cpt, 2),
+        'weekCost': round(week_tok * cpt, 2),
+        'monthCost': round(month_tok * cpt, 2),
+    })
+
+
+@app.route('/api/transcripts')
+def api_transcripts():
+    """List available session transcript .jsonl files."""
+    sessions_dir = SESSIONS_DIR or os.path.expanduser('~/.clawdbot/agents/main/sessions')
+    transcripts = []
+    if os.path.isdir(sessions_dir):
+        for fname in sorted(os.listdir(sessions_dir), key=lambda f: os.path.getmtime(os.path.join(sessions_dir, f)), reverse=True):
+            if not fname.endswith('.jsonl') or 'deleted' in fname:
+                continue
+            fpath = os.path.join(sessions_dir, fname)
+            try:
+                msg_count = 0
+                with open(fpath) as f:
+                    for _ in f:
+                        msg_count += 1
+                transcripts.append({
+                    'id': fname.replace('.jsonl', ''),
+                    'name': fname.replace('.jsonl', '')[:40],
+                    'messages': msg_count,
+                    'size': os.path.getsize(fpath),
+                    'modified': int(os.path.getmtime(fpath) * 1000),
+                })
+            except Exception:
+                pass
+    return jsonify({'transcripts': transcripts[:50]})
+
+
+@app.route('/api/transcript/<session_id>')
+def api_transcript(session_id):
+    """Parse and return a session transcript for the chat viewer."""
+    sessions_dir = SESSIONS_DIR or os.path.expanduser('~/.clawdbot/agents/main/sessions')
+    fpath = os.path.join(sessions_dir, session_id + '.jsonl')
+    # Sanitize path
+    fpath = os.path.normpath(fpath)
+    if not fpath.startswith(os.path.normpath(sessions_dir)):
+        return jsonify({'error': 'Access denied'}), 403
+    if not os.path.exists(fpath):
+        return jsonify({'error': 'Transcript not found'}), 404
+
+    messages = []
+    model = None
+    total_tokens = 0
+    first_ts = None
+    last_ts = None
+    try:
+        with open(fpath) as f:
+            for line in f:
+                try:
+                    obj = json.loads(line.strip())
+                    role = obj.get('role', obj.get('type', 'unknown'))
+                    content = obj.get('content', '')
+                    if isinstance(content, list):
+                        parts = []
+                        for part in content:
+                            if isinstance(part, dict):
+                                parts.append(part.get('text', str(part)))
+                            else:
+                                parts.append(str(part))
+                        content = '\n'.join(parts)
+                    elif not isinstance(content, str):
+                        content = str(content) if content else ''
+                    # Tool use handling
+                    if obj.get('tool_calls') or obj.get('tool_use'):
+                        tools = obj.get('tool_calls') or obj.get('tool_use') or []
+                        if isinstance(tools, list):
+                            for tc in tools:
+                                tname = tc.get('name', tc.get('function', {}).get('name', 'tool'))
+                                messages.append({
+                                    'role': 'tool',
+                                    'content': f"[Tool Call: {tname}]\n{json.dumps(tc.get('input', tc.get('arguments', {})), indent=2)[:500]}",
+                                    'timestamp': obj.get('timestamp') or obj.get('time'),
+                                })
+                    if role == 'tool_result':
+                        role = 'tool'
+                    ts = obj.get('timestamp') or obj.get('time') or obj.get('created_at')
+                    if ts:
+                        if isinstance(ts, (int, float)):
+                            ts_ms = int(ts * 1000) if ts < 1e12 else int(ts)
+                        else:
+                            try:
+                                ts_ms = int(datetime.fromisoformat(str(ts).replace('Z', '+00:00')).timestamp() * 1000)
+                            except Exception:
+                                ts_ms = None
+                        if ts_ms:
+                            if not first_ts or ts_ms < first_ts:
+                                first_ts = ts_ms
+                            if not last_ts or ts_ms > last_ts:
+                                last_ts = ts_ms
+                    else:
+                        ts_ms = None
+                    if not model:
+                        model = obj.get('model')
+                    usage = obj.get('usage', {})
+                    if isinstance(usage, dict):
+                        total_tokens += usage.get('total_tokens', 0) or (
+                            usage.get('input_tokens', 0) + usage.get('output_tokens', 0))
+                    if content or role in ('user', 'assistant', 'system'):
+                        messages.append({
+                            'role': role, 'content': content, 'timestamp': ts_ms,
+                        })
+                except (json.JSONDecodeError, ValueError):
+                    pass
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    duration = None
+    if first_ts and last_ts and last_ts > first_ts:
+        dur_sec = (last_ts - first_ts) / 1000
+        if dur_sec < 60:
+            duration = f'{dur_sec:.0f}s'
+        elif dur_sec < 3600:
+            duration = f'{dur_sec / 60:.0f}m'
+        else:
+            duration = f'{dur_sec / 3600:.1f}h'
+
+    return jsonify({
+        'name': session_id[:40],
+        'messageCount': len(messages),
+        'model': model,
+        'totalTokens': total_tokens,
+        'duration': duration,
+        'messages': messages[:500],  # Cap at 500 messages
+    })
+
+
+@app.route('/api/heatmap')
+def api_heatmap():
+    """Activity heatmap — events per hour for the last 7 days."""
+    now = datetime.now()
+    # Initialize 7 days × 24 hours grid
+    grid = {}
+    day_labels = []
+    for i in range(6, -1, -1):
+        d = now - timedelta(days=i)
+        ds = d.strftime('%Y-%m-%d')
+        grid[ds] = [0] * 24
+        day_labels.append({'date': ds, 'label': d.strftime('%a %d')})
+
+    # Parse log files for the last 7 days
+    for i in range(7):
+        d = now - timedelta(days=i)
+        ds = d.strftime('%Y-%m-%d')
+        log_file = os.path.join(LOG_DIR, f'moltbot-{ds}.log')
+        if not os.path.exists(log_file):
+            continue
+        try:
+            with open(log_file) as f:
+                for line in f:
+                    try:
+                        obj = json.loads(line.strip())
+                        ts = obj.get('time') or (obj.get('_meta', {}).get('date') if isinstance(obj.get('_meta'), dict) else None)
+                        if ts:
+                            if isinstance(ts, (int, float)):
+                                dt = datetime.fromtimestamp(ts / 1000 if ts > 1e12 else ts)
+                            else:
+                                dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00').replace('+00:00', ''))
+                            hour = dt.hour
+                            day_key = dt.strftime('%Y-%m-%d')
+                            if day_key in grid:
+                                grid[day_key][hour] += 1
+                    except Exception:
+                        # Count non-JSON lines too
+                        if ds in grid:
+                            grid[ds][12] += 1  # default to noon
+        except Exception:
+            pass
+
+    max_val = max(max(hours) for hours in grid.values()) if grid else 0
+    days = []
+    for dl in day_labels:
+        days.append({'label': dl['label'], 'hours': grid.get(dl['date'], [0] * 24)})
+
+    return jsonify({'days': days, 'max': max_val})
+
+
+@app.route('/api/health')
+def api_health():
+    """System health checks."""
+    checks = []
+    # 1. Gateway — check if port 18789 is responding
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
+        result = s.connect_ex(('127.0.0.1', 18789))
+        s.close()
+        if result == 0:
+            checks.append({'id': 'gateway', 'status': 'healthy', 'color': 'green', 'detail': 'Port 18789 responding'})
+        else:
+            # Fallback: check process
+            gw = subprocess.run(['pgrep', '-f', 'moltbot'], capture_output=True, text=True)
+            if gw.returncode == 0:
+                checks.append({'id': 'gateway', 'status': 'warning', 'color': 'yellow', 'detail': 'Process running, port not responding'})
+            else:
+                checks.append({'id': 'gateway', 'status': 'critical', 'color': 'red', 'detail': 'Not running'})
+    except Exception:
+        checks.append({'id': 'gateway', 'status': 'critical', 'color': 'red', 'detail': 'Check failed'})
+
+    # 2. Disk space — warn if < 5GB free
+    try:
+        st = os.statvfs('/')
+        free_gb = (st.f_bavail * st.f_frsize) / (1024 ** 3)
+        total_gb = (st.f_blocks * st.f_frsize) / (1024 ** 3)
+        pct_used = ((total_gb - free_gb) / total_gb) * 100
+        if free_gb < 2:
+            checks.append({'id': 'disk', 'status': 'critical', 'color': 'red', 'detail': f'{free_gb:.1f} GB free ({pct_used:.0f}% used)'})
+        elif free_gb < 5:
+            checks.append({'id': 'disk', 'status': 'warning', 'color': 'yellow', 'detail': f'{free_gb:.1f} GB free ({pct_used:.0f}% used)'})
+        else:
+            checks.append({'id': 'disk', 'status': 'healthy', 'color': 'green', 'detail': f'{free_gb:.1f} GB free ({pct_used:.0f}% used)'})
+    except Exception:
+        checks.append({'id': 'disk', 'status': 'warning', 'color': 'yellow', 'detail': 'Check failed'})
+
+    # 3. Memory usage (RSS of this process + overall)
+    try:
+        import resource
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # KB -> MB on Linux
+        mem = subprocess.run(['free', '-m'], capture_output=True, text=True)
+        mem_parts = mem.stdout.strip().split('\n')[1].split()
+        used_mb = int(mem_parts[2])
+        total_mb = int(mem_parts[1])
+        pct = (used_mb / total_mb) * 100
+        if pct > 90:
+            checks.append({'id': 'memory', 'status': 'critical', 'color': 'red', 'detail': f'{used_mb}MB / {total_mb}MB ({pct:.0f}%)'})
+        elif pct > 75:
+            checks.append({'id': 'memory', 'status': 'warning', 'color': 'yellow', 'detail': f'{used_mb}MB / {total_mb}MB ({pct:.0f}%)'})
+        else:
+            checks.append({'id': 'memory', 'status': 'healthy', 'color': 'green', 'detail': f'{used_mb}MB / {total_mb}MB ({pct:.0f}%)'})
+    except Exception:
+        checks.append({'id': 'memory', 'status': 'warning', 'color': 'yellow', 'detail': 'Check failed'})
+
+    # 4. Uptime
+    try:
+        uptime = subprocess.run(['uptime', '-p'], capture_output=True, text=True).stdout.strip().replace('up ', '')
+        checks.append({'id': 'uptime', 'status': 'healthy', 'color': 'green', 'detail': uptime})
+    except Exception:
+        checks.append({'id': 'uptime', 'status': 'warning', 'color': 'yellow', 'detail': 'Unknown'})
+
+    return jsonify({'checks': checks})
+
+
+@app.route('/api/health-stream')
+def api_health_stream():
+    """SSE endpoint — auto-refresh health checks every 30 seconds."""
+    def generate():
+        while True:
+            try:
+                with app.test_request_context():
+                    resp = api_health()
+                    data = resp.get_json()
+                    yield f'data: {json.dumps(data)}\n\n'
+            except Exception:
+                yield f'data: {json.dumps({"checks": []})}\n\n'
+            time.sleep(30)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 # ── Data Helpers ────────────────────────────────────────────────────────
 
 def _get_sessions():
     """Read active sessions from the session directory."""
     sessions = []
     try:
-        base = os.path.expanduser('~/.clawdbot/agents/main/sessions')
+        base = SESSIONS_DIR or os.path.expanduser('~/.clawdbot/agents/main/sessions')
         if not os.path.isdir(base):
             return sessions
         idx_files = sorted(
@@ -1297,6 +1969,10 @@ BANNER = r"""
        |_|          Dashboard v{version}
 
   🦞  See your agent think
+
+  Tabs: Overview · 📊 Usage · Sessions · Crons · Logs
+        Memory · 📜 Transcripts · Flow
+  New:  Token tracking · Activity heatmap · Health checks
 """
 
 
@@ -1313,6 +1989,7 @@ def main():
     parser.add_argument('--host', '-H', type=str, default='0.0.0.0', help='Host (default: 0.0.0.0)')
     parser.add_argument('--workspace', '-w', type=str, help='Agent workspace directory')
     parser.add_argument('--log-dir', '-l', type=str, help='Log directory')
+    parser.add_argument('--sessions-dir', '-s', type=str, help='Sessions directory (transcript .jsonl files)')
     parser.add_argument('--name', '-n', type=str, help='Your name (shown in Flow tab)')
     parser.add_argument('--version', '-v', action='version', version=f'openclaw-dashboard {__version__}')
 
@@ -1322,6 +1999,7 @@ def main():
     # Print banner
     print(BANNER.format(version=__version__))
     print(f"  Workspace:  {WORKSPACE}")
+    print(f"  Sessions:   {SESSIONS_DIR}")
     print(f"  Logs:       {LOG_DIR}")
     print(f"  User:       {USER_NAME}")
     print()

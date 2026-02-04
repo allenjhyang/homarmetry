@@ -1,6 +1,6 @@
 # 🦞 OpenClaw Dashboard
 
-**See your agent think.**
+**See your agent think.** The Grafana for your personal AI agent.
 
 Real-time observability dashboard for [OpenClaw](https://github.com/nicobailon/openclaw)/[Moltbot](https://github.com/nicobailon/moltbot) AI agents. One file. Zero config. Just run it.
 
@@ -49,11 +49,13 @@ Opens at **http://localhost:8900** — auto-detects your OpenClaw workspace.
 
 | Tab | What it shows |
 |-----|--------------|
-| **Overview** | Model, active sessions, cron jobs, context tokens, memory files, system health, recent logs |
+| **Overview** | Model, sessions, crons, tokens, memory, **❤️ health checks** (auto-refresh via SSE), **🔥 activity heatmap** (GitHub-style), recent logs |
+| **📊 Usage** | **Token/cost tracking** — bar chart of tokens per day (14 days), today/week/month totals, estimated cost breakdown |
 | **Sessions** | All active agent sessions with model, channel, token usage, last activity |
 | **Crons** | Scheduled jobs with status, schedule, last run, next run, duration |
 | **Logs** | Parsed JSON logs with color-coded levels, configurable line count, **real-time SSE streaming** |
 | **Memory** | Clickable file browser for SOUL.md, MEMORY.md, AGENTS.md, daily memory files |
+| **📜 Transcripts** | **Session transcript viewer** — browse .jsonl files, click to see chat-bubble conversation view with color-coded roles, expand/collapse |
 | **Flow** | **Real-time animated SVG** showing data flow: You → Channels → Gateway → Brain → Tools → Infrastructure |
 
 ### Flow Visualization
@@ -67,6 +69,29 @@ The Flow tab is the star — a live animated architecture diagram that lights up
 - 🔴 **Red flash** — errors
 - 🔵 **Cyan pulses** — infrastructure layer activity (network, storage, runtime)
 
+### New in v0.2: Observability That Actually Differentiates
+
+- **🔥 Activity Heatmap** — GitHub-style 7×24 grid showing when your agent is busiest. Pure CSS, no libraries.
+- **❤️ Health Checks** — Gateway, disk, memory, uptime at a glance. Auto-refreshes every 30s via SSE.
+- **📊 Token/Cost Tracking** — See where your tokens go. Daily bar chart, weekly/monthly totals, cost estimates.
+- **📜 Transcript Viewer** — Read your agent's conversations in a beautiful chat-bubble UI. Color-coded roles, expand/collapse for long messages.
+
+---
+
+## 🤔 What Makes This Different?
+
+| | OpenClaw Dashboard | Langfuse | AgentOps |
+|---|---|---|---|
+| **Install** | `pip install openclaw-dashboard` | Docker + Postgres | SDK + cloud account |
+| **Config** | Zero. Auto-detects everything. | Database URLs, API keys | API keys, SDK init |
+| **Focus** | Personal AI agent | Enterprise LLM apps | Enterprise agent monitoring |
+| **Memory-first** | ✅ Browse SOUL.md, MEMORY.md, daily notes | ❌ | ❌ |
+| **Single file** | ✅ One Python file, one dependency | ❌ Multi-service | ❌ Cloud service |
+| **Transcripts** | ✅ Chat-bubble viewer built-in | ✅ (needs SDK) | ✅ (needs SDK) |
+| **Cost tracking** | ✅ Zero instrumentation | ✅ (needs SDK) | ✅ (needs SDK) |
+
+**TL;DR:** Langfuse and AgentOps are great for teams building LLM products. OpenClaw Dashboard is for the person running a personal AI agent on their own machine — zero instrumentation, zero config, memory-first. It's the **Grafana for your personal AI agent**.
+
 ---
 
 ## ⚙️ Configuration
@@ -78,6 +103,7 @@ openclaw-dashboard --port 9000          # Custom port (default: 8900)
 openclaw-dashboard --host 127.0.0.1     # Bind to localhost only
 openclaw-dashboard --workspace ~/mybot  # Custom workspace path
 openclaw-dashboard --log-dir /var/log   # Custom log directory
+openclaw-dashboard --sessions-dir ~/data # Custom sessions directory
 openclaw-dashboard --name "Alice"       # Your name in Flow visualization
 ```
 
@@ -87,6 +113,7 @@ openclaw-dashboard --name "Alice"       # Your name in Flow visualization
 |----------|-------------|---------|
 | `OPENCLAW_HOME` | Agent workspace directory | Auto-detected |
 | `OPENCLAW_WORKSPACE` | Alternative to OPENCLAW_HOME | Auto-detected |
+| `OPENCLAW_SESSIONS_DIR` | Sessions directory (.jsonl transcripts) | Auto-detected |
 | `OPENCLAW_LOG_DIR` | Log directory | `/tmp/moltbot` |
 | `OPENCLAW_USER` | Your name in Flow tab | `You` |
 
