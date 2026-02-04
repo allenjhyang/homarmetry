@@ -2,7 +2,7 @@
 
 **See your agent think.** The Grafana for your personal AI agent.
 
-Real-time observability dashboard for [OpenClaw](https://github.com/nicobailon/openclaw)/[Moltbot](https://github.com/nicobailon/moltbot) AI agents. One file. Zero config. Just run it.
+Real-time observability dashboard for [OpenClaw/Moltbot](https://github.com/openclaw/openclaw) AI agents. One file. Zero config. Just run it.
 
 ![Flow Visualization](https://raw.githubusercontent.com/vivekchand/openclaw-dashboard/main/screenshots/flow.jpg)
 
@@ -231,7 +231,7 @@ MIT — do whatever you want with it.
 ## 🙏 Credits
 
 - Built by [Vivek Chand](https://linkedin.com/in/vivekchand46) as part of the OpenClaw ecosystem
-- Powered by [OpenClaw](https://github.com/nicobailon/openclaw) and [Moltbot](https://github.com/nicobailon/moltbot)
+- Powered by [OpenClaw/Moltbot](https://github.com/openclaw/openclaw)
 - The Flow visualization was inspired by watching an AI agent actually think
 
 ---
