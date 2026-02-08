@@ -42,6 +42,7 @@ __version__ = "0.2.4"
 app = Flask(__name__)
 
 # ── Configuration (auto-detected, overridable via CLI/env) ──────────────
+MC_URL = os.environ.get("MC_URL", "http://localhost:3002")
 WORKSPACE = None
 MEMORY_DIR = None
 LOG_DIR = None
@@ -526,15 +527,15 @@ DASHBOARD_HTML = r"""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* Light theme (default) */
+    /* Light theme (default) — premium polish */
     --bg-primary: #ffffff;
-    --bg-secondary: #f8fafc;
+    --bg-secondary: #f8f9fa;
     --bg-tertiary: #ffffff;
     --bg-hover: #f1f5f9;
     --bg-accent: #2563eb;
-    --border-primary: #e2e8f0;
-    --border-secondary: #f1f5f9;
-    --text-primary: #0f172a;
+    --border-primary: rgba(0,0,0,0.06);
+    --border-secondary: rgba(0,0,0,0.03);
+    --text-primary: #1a1a2e;
     --text-secondary: #475569;
     --text-tertiary: #64748b;
     --text-muted: #94a3b8;
@@ -542,17 +543,17 @@ DASHBOARD_HTML = r"""
     --text-accent: #2563eb;
     --text-link: #2563eb;
     --text-success: #16a34a;
-    --text-warning: #ea580c;
+    --text-warning: #d97706;
     --text-error: #dc2626;
     --bg-success: #f0fdf4;
     --bg-warning: #fffbeb;
     --bg-error: #fef2f2;
-    --log-bg: #f8fafc;
+    --log-bg: #f8f9fa;
     --file-viewer-bg: #ffffff;
     --button-bg: #f1f5f9;
     --button-hover: #e2e8f0;
-    --card-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-    --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.08);
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    --card-shadow-hover: 0 4px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.06);
   }
 
   [data-theme="dark"] {
@@ -585,14 +586,15 @@ DASHBOARD_HTML = r"""
     --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.4);
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
-  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }
+  * { box-sizing: border-box; margin: 0; padding: 0; transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; font-size: 14px; font-weight: 400; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
-  .nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); padding: 14px 24px; display: flex; align-items: center; gap: 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .nav { background: var(--bg-secondary); border-bottom: none; padding: 6px 16px; display: flex; align-items: center; gap: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; box-shadow: 0 1px 3px rgba(0,0,0,0.06); position: relative; z-index: 10; }
   .nav h1 { font-size: 18px; font-weight: 700; color: var(--text-primary); white-space: nowrap; letter-spacing: -0.3px; }
   .nav h1 span { color: var(--text-accent); }
-  .theme-toggle { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; padding: 8px 12px; color: var(--text-tertiary); cursor: pointer; font-size: 16px; margin-left: 12px; transition: all 0.15s; }
+  .theme-toggle { background: var(--button-bg); border: none; border-radius: 8px; padding: 8px 12px; color: var(--text-tertiary); cursor: pointer; font-size: 16px; margin-left: 12px; transition: all 0.15s; box-shadow: var(--card-shadow); }
   .theme-toggle:hover { background: var(--button-hover); color: var(--text-secondary); }
+  .theme-toggle:active { transform: scale(0.98); }
   
   /* === Zoom Controls === */
   .zoom-controls { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
@@ -600,15 +602,17 @@ DASHBOARD_HTML = r"""
   .zoom-btn:hover { background: var(--button-hover); color: var(--text-secondary); }
   .zoom-level { font-size: 11px; color: var(--text-muted); font-weight: 600; min-width: 36px; text-align: center; }
   .nav-tabs { display: flex; gap: 4px; margin-left: auto; }
-  .nav-tab { padding: 8px 16px; border-radius: 8px; background: transparent; border: 1px solid var(--border-primary); color: var(--text-tertiary); cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; transition: all 0.15s; }
+  .nav-tab { padding: 8px 16px; border-radius: 8px; background: transparent; border: 1px solid transparent; color: var(--text-tertiary); cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; transition: all 0.2s ease; position: relative; }
   .nav-tab:hover { background: var(--bg-hover); color: var(--text-secondary); }
   .nav-tab.active { background: var(--bg-accent); color: #ffffff; border-color: var(--bg-accent); }
+  .nav-tab:active { transform: scale(0.98); }
 
-  .page { display: none; padding: 24px 28px; max-width: 1200px; margin: 0 auto; }
+  .page { display: none; padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
+  #page-overview { max-width: 1600px; padding: 8px 12px; }
   .page.active { display: block; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 16px; }
-  .card { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow); }
+  .card { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 12px; padding: 20px; box-shadow: var(--card-shadow); transition: transform 0.2s ease, box-shadow 0.2s ease; }
   .card-title { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
   .card-title .icon { font-size: 16px; }
   .card-value { font-size: 32px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.5px; }
@@ -631,14 +635,14 @@ DASHBOARD_HTML = r"""
   .cron-item { padding: 12px; border-bottom: 1px solid var(--border-secondary); }
   .cron-item:last-child { border-bottom: none; }
   .cron-name { font-weight: 600; font-size: 14px; color: var(--text-primary); }
-  .cron-schedule { font-size: 12px; color: var(--text-accent); margin-top: 2px; font-family: monospace; }
+  .cron-schedule { font-size: 12px; color: var(--text-accent); margin-top: 2px; font-family: 'SF Mono', 'Fira Code', monospace; }
   .cron-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .cron-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .cron-status.ok { background: var(--bg-success); color: var(--text-success); }
   .cron-status.error { background: var(--bg-error); color: var(--text-error); }
   .cron-status.pending { background: var(--bg-warning); color: var(--text-warning); }
 
-  .log-viewer { background: var(--log-bg); border: 1px solid var(--border-primary); border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px; max-height: 500px; overflow-y: auto; -webkit-overflow-scrolling: touch; white-space: pre-wrap; word-break: break-all; }
+  .log-viewer { background: var(--log-bg); border: 1px solid var(--border-primary); border-radius: 8px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px; max-height: 500px; overflow-y: auto; -webkit-overflow-scrolling: touch; white-space: pre-wrap; word-break: break-all; }
   .log-line { padding: 1px 0; }
   .log-line .ts { color: var(--text-muted); }
   .log-line .info { color: var(--text-link); }
@@ -660,11 +664,12 @@ DASHBOARD_HTML = r"""
   .memory-size { font-size: 12px; color: var(--text-faint); }
 
   .refresh-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-  .refresh-btn { padding: 8px 16px; background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; color: var(--text-primary); cursor: pointer; font-size: 13px; font-weight: 500; }
+  .refresh-btn { padding: 8px 16px; background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; color: var(--text-primary); cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s ease; }
   .refresh-btn:hover { background: var(--button-hover); }
+  .refresh-btn:active { transform: scale(0.98); }
   .refresh-time { font-size: 12px; color: var(--text-muted); }
-  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #27ae60; animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 4px #27ae60; } 50% { opacity: 0.3; box-shadow: none; } }
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #16a34a; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 4px #16a34a; } 50% { opacity: 0.3; box-shadow: none; } }
   .live-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-success); color: var(--text-success); font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; animation: pulse 1.5s infinite; }
 
   .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
@@ -682,24 +687,19 @@ DASHBOARD_HTML = r"""
   .flow-stat-label { font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; display: block; }
   .flow-stat-value { font-size: 20px; font-weight: 700; color: var(--text-primary); display: block; margin-top: 2px; }
   #flow-svg { width: 100%; min-width: 800px; height: auto; display: block; overflow: visible; }
-  #flow-svg text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; font-weight: 600; fill: var(--text-primary); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-  .flow-node rect { rx: 12; ry: 12; stroke-width: 1.5; transition: all 0.3s ease; fill: var(--bg-tertiary); }
-  .flow-node-channel rect { stroke: #7c3aed; box-shadow: var(--card-shadow); }
-  .flow-node-gateway rect { stroke: #2563eb; }
-  .flow-node-session rect { stroke: #16a34a; }
-  .flow-node-brain rect { stroke: #d97706; stroke-width: 2.5; }
-  .flow-node-tool rect { stroke: #dc2626; }
-  [data-theme="dark"] .flow-node rect { fill: none; }
-  [data-theme="dark"] .flow-node-channel rect { fill: #161630; stroke: #6a40bf; }
-  [data-theme="dark"] .flow-node-gateway rect { fill: #141830; stroke: #4080e0; }
-  [data-theme="dark"] .flow-node-session rect { fill: #142818; stroke: #40c060; }
-  [data-theme="dark"] .flow-node-brain rect { fill: #221c08; stroke: #f0c040; }
-  [data-theme="dark"] .flow-node-tool rect { fill: #1e1414; stroke: #c05030; }
+  #flow-svg text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .flow-node-channel text, .flow-node-gateway text, .flow-node-session text, .flow-node-tool text { fill: #ffffff !important; }
+  .flow-node-infra > text { fill: #ffffff !important; }
+  .flow-node rect { rx: 10; ry: 10; stroke-width: 1.5; transition: all 0.3s ease; }
+  .flow-node-brain rect { stroke-width: 2.5; }
+  @keyframes dashFlow { to { stroke-dashoffset: -24; } }
+  .flow-path { stroke-dasharray: 8 4; animation: dashFlow 1.2s linear infinite; }
+  .flow-path.flow-path-infra { stroke-dasharray: 6 3; animation: dashFlow 2s linear infinite; }
   .flow-node-channel.active rect { filter: drop-shadow(0 0 12px rgba(106,64,191,0.8)) drop-shadow(0 0 20px rgba(106,64,191,0.4)); stroke-width: 2.5; transform: scale(1.05); }
   .flow-node-gateway.active rect { filter: drop-shadow(0 0 12px rgba(64,128,224,0.8)) drop-shadow(0 0 20px rgba(64,128,224,0.4)); stroke-width: 2.5; transform: scale(1.05); }
   .flow-node-session.active rect { filter: drop-shadow(0 0 12px rgba(64,192,96,0.8)) drop-shadow(0 0 20px rgba(64,192,96,0.4)); stroke-width: 2.5; transform: scale(1.05); }
   .flow-node-tool.active rect { filter: drop-shadow(0 0 12px rgba(224,96,64,0.9)) drop-shadow(0 0 24px rgba(224,96,64,0.5)); stroke: #ff8050; stroke-width: 2.5; transform: scale(1.1); }
-  .flow-path { fill: none; stroke: var(--border-primary); stroke-width: 2; stroke-linecap: round; transition: stroke 0.4s, opacity 0.4s; }
+  .flow-path { fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; transition: stroke 0.4s, opacity 0.4s; opacity: 0.6; }
   .flow-path.glow-blue { stroke: #4080e0; filter: drop-shadow(0 0 6px rgba(64,128,224,0.6)); }
   .flow-path.glow-yellow { stroke: #f0c040; filter: drop-shadow(0 0 6px rgba(240,192,64,0.6)); }
   .flow-path.glow-green { stroke: #50e080; filter: drop-shadow(0 0 6px rgba(80,224,128,0.6)); }
@@ -715,14 +715,13 @@ DASHBOARD_HTML = r"""
   .flow-node-human { animation: humanGlow 3.5s ease-in-out infinite; }
   .flow-ground { stroke: var(--border-primary); stroke-width: 1; stroke-dasharray: 8 4; }
   .flow-ground-label { font-size: 10px !important; fill: var(--text-muted) !important; font-weight: 600 !important; letter-spacing: 4px; }
-  .flow-node-infra rect { rx: 6; ry: 6; stroke-width: 2; stroke-dasharray: 5 2; transition: all 0.3s ease; fill: var(--bg-secondary); }
+  .flow-node-infra rect { rx: 6; ry: 6; stroke-width: 2; stroke-dasharray: 5 2; transition: all 0.3s ease; }
   .flow-node-infra text { font-size: 12px !important; }
   .flow-node-infra .infra-sub { font-size: 9px !important; fill: var(--text-muted) !important; font-weight: 400 !important; }
   .flow-node-runtime rect { stroke: #4a7090; }
   .flow-node-machine rect { stroke: #606880; }
   .flow-node-storage rect { stroke: #806a30; }
   .flow-node-network rect { stroke: #308080; }
-  [data-theme="dark"] .flow-node-infra rect { fill: none; }
   [data-theme="dark"] .flow-node-runtime rect { fill: #10182a; }
   [data-theme="dark"] .flow-node-machine rect { fill: #141420; }
   [data-theme="dark"] .flow-node-storage rect { fill: #1a1810; }
@@ -749,13 +748,13 @@ DASHBOARD_HTML = r"""
   /* === Health Checks === */
   .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .health-item { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; transition: border-color 0.3s; box-shadow: var(--card-shadow); }
-  .health-item.healthy { border-left: 3px solid #27ae60; }
-  .health-item.warning { border-left: 3px solid #f0c040; }
-  .health-item.critical { border-left: 3px solid #e74c3c; }
+  .health-item.healthy { border-left: 3px solid #16a34a; }
+  .health-item.warning { border-left: 3px solid #d97706; }
+  .health-item.critical { border-left: 3px solid #dc2626; }
   .health-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-  .health-dot.green { background: #27ae60; box-shadow: 0 0 8px rgba(39,174,96,0.5); }
-  .health-dot.yellow { background: #f0c040; box-shadow: 0 0 8px rgba(240,192,64,0.5); }
-  .health-dot.red { background: #e74c3c; box-shadow: 0 0 8px rgba(231,76,60,0.5); }
+  .health-dot.green { background: #16a34a; box-shadow: 0 0 8px rgba(22,163,74,0.5); }
+  .health-dot.yellow { background: #d97706; box-shadow: 0 0 8px rgba(217,119,6,0.5); }
+  .health-dot.red { background: #dc2626; box-shadow: 0 0 8px rgba(220,38,38,0.5); }
   .health-info { flex: 1; }
   .health-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
   .health-detail { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
@@ -807,15 +806,15 @@ DASHBOARD_HTML = r"""
   /* === Mini Dashboard Widgets === */
   .tool-spark { font-size: 11px; color: var(--text-muted); padding: 3px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--border-secondary); }
   .tool-spark span { color: var(--text-accent); font-weight: 600; }
-  .card:hover { transform: translateY(-2px); transition: all 0.2s ease; box-shadow: var(--card-shadow-hover); }
+  .card:hover { transform: translateY(-1px); box-shadow: var(--card-shadow-hover); }
   .card[onclick] { cursor: pointer; }
 
   /* === Sub-Agent Worker Bees === */
   .subagent-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 10px; }
   .subagent-status { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .subagent-status.active { background: #27ae60; box-shadow: 0 0 4px rgba(39,174,96,0.5); }
-  .subagent-status.idle { background: #f0c040; box-shadow: 0 0 4px rgba(240,192,64,0.5); }
-  .subagent-status.stale { background: #e74c3c; box-shadow: 0 0 4px rgba(231,76,60,0.5); }
+  .subagent-status.active { background: #16a34a; box-shadow: 0 0 4px rgba(22,163,74,0.5); }
+  .subagent-status.idle { background: #d97706; box-shadow: 0 0 4px rgba(217,119,6,0.5); }
+  .subagent-status.stale { background: #dc2626; box-shadow: 0 0 4px rgba(220,38,38,0.5); }
   .subagent-name { font-weight: 600; color: var(--text-secondary); }
   .subagent-task { color: var(--text-muted); font-size: 9px; }
   .subagent-runtime { color: var(--text-faint); font-size: 9px; margin-left: auto; }
@@ -825,9 +824,9 @@ DASHBOARD_HTML = r"""
   .subagent-row:last-child { border-bottom: none; }
   .subagent-row:hover { background: var(--bg-hover); }
   .subagent-indicator { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-  .subagent-indicator.active { background: #27ae60; box-shadow: 0 0 8px rgba(39,174,96,0.6); animation: pulse 2s infinite; }
-  .subagent-indicator.idle { background: #f0c040; box-shadow: 0 0 8px rgba(240,192,64,0.6); }
-  .subagent-indicator.stale { background: #e74c3c; box-shadow: 0 0 8px rgba(231,76,60,0.6); opacity: 0.7; }
+  .subagent-indicator.active { background: #16a34a; box-shadow: 0 0 8px rgba(22,163,74,0.6); animation: pulse 2s infinite; }
+  .subagent-indicator.idle { background: #d97706; box-shadow: 0 0 8px rgba(217,119,6,0.6); }
+  .subagent-indicator.stale { background: #dc2626; box-shadow: 0 0 8px rgba(220,38,38,0.6); opacity: 0.7; }
   .subagent-info { flex: 1; }
   .subagent-header { display: flex; justify-content: between; align-items: center; margin-bottom: 4px; }
   .subagent-id { font-weight: 600; font-size: 14px; color: var(--text-primary); }
@@ -857,8 +856,111 @@ DASHBOARD_HTML = r"""
   .task-card-pulse.active { animation: taskPulse 1.5s ease-in-out infinite; }
   @keyframes taskPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 50% { box-shadow: 0 0 0 8px rgba(34,197,94,0); } }
 
+  /* === Enhanced Active Tasks Panel === */
+  .tasks-panel-scroll { max-height: 70vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--border-primary) transparent; }
+  .tasks-panel-scroll::-webkit-scrollbar { width: 6px; }
+  .tasks-panel-scroll::-webkit-scrollbar-track { background: transparent; }
+  .tasks-panel-scroll::-webkit-scrollbar-thumb { background: var(--border-primary); border-radius: 3px; }
+  .task-group-header { font-size: 13px; font-weight: 700; color: var(--text-secondary); padding: 8px 4px 6px; margin-top: 4px; letter-spacing: 0.3px; }
+  .task-group-header:first-child { margin-top: 0; }
+  @keyframes idleBreathe { 0%,100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
+  .tasks-empty-icon { animation: idleBreathe 3s ease-in-out infinite; display: inline-block; }
+  @keyframes statusPulseGreen { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); } 50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .status-dot.running { background: #22c55e; animation: statusPulseGreen 1.5s ease-in-out infinite; }
+  .status-dot.complete { background: #3b82f6; }
+  .status-dot.failed { background: #ef4444; }
+
   /* === Zoom Wrapper === */
   .zoom-wrapper { transform-origin: top left; transition: transform 0.3s ease; }
+
+  /* === Split-Screen Overview === */
+  .overview-split { display: grid; grid-template-columns: 60fr 1px 40fr; gap: 0; margin-bottom: 0; height: calc(100vh - 90px); }
+  .overview-flow-pane { position: relative; border: 1px solid var(--border-primary); border-radius: 8px 0 0 8px; overflow: hidden; background: var(--bg-secondary); padding: 4px; }
+  .overview-flow-pane .flow-container { height: 100%; }
+  .overview-flow-pane svg { width: 100%; height: 100%; min-width: 0 !important; }
+  .overview-divider { background: var(--border-primary); width: 1px; }
+  .overview-tasks-pane { overflow: visible; border: 1px solid var(--border-primary); border-left: none; border-radius: 0 8px 8px 0; padding: 10px 12px; }
+  /* Scanline overlay */
+  .scanline-overlay { pointer-events: none; position: absolute; inset: 0; z-index: 2; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,65,0.015) 2px, rgba(0,255,65,0.015) 4px); }
+  .grid-overlay { pointer-events: none; position: absolute; inset: 0; z-index: 1; background-image: linear-gradient(var(--border-secondary) 1px, transparent 1px), linear-gradient(90deg, var(--border-secondary) 1px, transparent 1px); background-size: 40px 40px; opacity: 0.3; }
+  /* Task cards in overview */
+  .ov-task-card { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--card-shadow); position: relative; transition: box-shadow 0.2s; }
+  .ov-task-card:hover { box-shadow: var(--card-shadow-hover); }
+  .ov-task-card.running { border-left: 4px solid #16a34a; }
+  .ov-task-card.complete { border-left: 4px solid #2563eb; opacity: 0.75; }
+  .ov-task-card.failed { border-left: 4px solid #dc2626; }
+  .ov-task-pulse { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; animation: taskPulse 1.5s ease-in-out infinite; }
+  .ov-details { display: none; margin-top: 10px; padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 11px; line-height: 1.7; color: var(--text-tertiary); }
+  .ov-details.open { display: block; }
+  .ov-toggle-btn { background: none; border: 1px solid var(--border-primary); border-radius: 6px; padding: 3px 10px; font-size: 11px; color: var(--text-tertiary); cursor: pointer; transition: all 0.15s; }
+  .ov-toggle-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+  /* === Task Detail Modal === */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+  .modal-overlay.open { display: flex; }
+  .modal-card { background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 16px; width: 95%; max-width: 900px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.25); }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-primary); flex-shrink: 0; }
+  .modal-header-left { flex: 1; min-width: 0; }
+  .modal-title { font-size: 16px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .modal-session-key { font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px; }
+  .modal-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .modal-auto-refresh { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); cursor: pointer; }
+  .modal-auto-refresh input { cursor: pointer; }
+  .modal-close { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; color: var(--text-tertiary); transition: all 0.15s; }
+  .modal-close:hover { background: var(--bg-error); color: var(--text-error); }
+  .modal-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border-primary); padding: 0 20px; flex-shrink: 0; }
+  .modal-tab { padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .modal-tab:hover { color: var(--text-secondary); }
+  .modal-tab.active { color: var(--text-accent); border-bottom-color: var(--text-accent); }
+  .modal-content { flex: 1; overflow-y: auto; padding: 20px; -webkit-overflow-scrolling: touch; }
+  .modal-footer { border-top: 1px solid var(--border-primary); padding: 10px 20px; display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+  /* Modal event items */
+  .evt-item { border: 1px solid var(--border-secondary); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .evt-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; transition: background 0.15s; }
+  .evt-header:hover { background: var(--bg-hover); }
+  .evt-icon { font-size: 16px; flex-shrink: 0; }
+  .evt-summary { flex: 1; font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .evt-summary strong { color: var(--text-primary); }
+  .evt-ts { font-size: 11px; color: var(--text-muted); flex-shrink: 0; font-family: monospace; }
+  .evt-body { display: none; padding: 0 14px 12px; font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 12px; line-height: 1.6; color: var(--text-tertiary); white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; }
+  .evt-body.open { display: block; }
+  .evt-item.type-agent { border-left: 3px solid #3b82f6; }
+  .evt-item.type-exec { border-left: 3px solid #16a34a; }
+  .evt-item.type-read { border-left: 3px solid #8b5cf6; }
+  .evt-item.type-result { border-left: 3px solid #ea580c; }
+  .evt-item.type-thinking { border-left: 3px solid #6b7280; }
+  .evt-item.type-user { border-left: 3px solid #7c3aed; }
+  /* === Compact Stats Footer Bar === */
+  .stats-footer { display: flex; gap: 0; border: 1px solid var(--border-primary); border-radius: 8px; margin-top: 6px; background: var(--bg-tertiary); overflow: hidden; }
+  .stats-footer-item { flex: 1; padding: 6px 12px; display: flex; align-items: center; gap: 8px; border-right: 1px solid var(--border-primary); cursor: pointer; transition: background 0.15s; }
+  .stats-footer-item:last-child { border-right: none; }
+  .stats-footer-item:hover { background: var(--bg-hover); }
+  .stats-footer-icon { font-size: 14px; }
+  .stats-footer-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stats-footer-value { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+  .stats-footer-sub { font-size: 10px; color: var(--text-faint); }
+  @media (max-width: 1024px) {
+    .stats-footer { flex-wrap: wrap; }
+    .stats-footer-item { flex: 1 1 45%; min-width: 0; }
+  }
+
+  /* Narrative view */
+  .narrative-item { padding: 10px 0; border-bottom: 1px solid var(--border-secondary); font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
+  .narrative-item:last-child { border-bottom: none; }
+  .narrative-item .narr-icon { margin-right: 8px; }
+  .narrative-item code { background: var(--bg-secondary); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  /* Summary view */
+  .summary-section { margin-bottom: 16px; }
+  .summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 6px; }
+  .summary-text { font-size: 14px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; }
+
+  @media (max-width: 1024px) {
+    .overview-split { grid-template-columns: 1fr; height: auto; }
+    .overview-flow-pane { height: 40vh; min-height: 250px; border-radius: 8px 8px 0 0; }
+    .overview-divider { width: auto; height: 1px; }
+    .overview-tasks-pane { height: 60vh; border-radius: 0 0 8px 8px; border-left: 1px solid var(--border-primary); border-top: none; }
+  }
 
   @media (max-width: 768px) {
     .nav { padding: 10px 12px; gap: 8px; }
@@ -894,7 +996,7 @@ DASHBOARD_HTML = r"""
   }
 </style>
 </head>
-<body>
+<body data-theme="light"><script>var t=localStorage.getItem('openclaw-theme');if(t==='dark')document.body.setAttribute('data-theme','dark');</script>
 <div class="zoom-wrapper" id="zoom-wrapper">
 <div class="nav">
   <h1><span>🦞</span> OpenClaw</h1>
@@ -905,8 +1007,8 @@ DASHBOARD_HTML = r"""
     <button class="zoom-btn" onclick="zoomIn()" title="Zoom in (Ctrl/Cmd + +)">+</button>
   </div>
   <div class="nav-tabs">
-    <div class="nav-tab active" onclick="switchTab('flow')">Flow</div>
-    <div class="nav-tab" onclick="switchTab('overview')">Overview</div>
+    <div class="nav-tab" onclick="switchTab('flow')">Flow</div>
+    <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
     <div class="nav-tab" onclick="switchTab('sessions')">Sessions</div>
     <div class="nav-tab" onclick="switchTab('crons')">Schedules</div>
     <div class="nav-tab" onclick="switchTab('logs')">Logs</div>
@@ -914,95 +1016,99 @@ DASHBOARD_HTML = r"""
   </div>
 </div>
 
-<!-- OVERVIEW (New Mission Control) -->
-<div class="page" id="page-overview">
-  <div class="refresh-bar">
-    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+<!-- OVERVIEW (Split-Screen Hacker Dashboard) -->
+<div class="page active" id="page-overview">
+  <div class="refresh-bar" style="margin-bottom:6px;">
+    <button class="refresh-btn" onclick="loadAll()" style="padding:4px 12px;font-size:12px;">↻</button>
     <span class="pulse"></span>
     <span class="live-badge">LIVE</span>
-    <span class="refresh-time" id="refresh-time">Loading...</span>
+    <span class="refresh-time" id="refresh-time" style="font-size:11px;">Loading...</span>
   </div>
 
-  <!-- Mini Dashboard Widgets Grid -->
-  <div class="grid">
-    <!-- 💰 Spending Today -->
-    <div class="card" onclick="openDetailView('cost')" style="cursor:pointer;">
-      <div class="card-title"><span class="icon">💰</span> Spending Today</div>
-      <div class="card-value" id="cost-today">$0.00</div>
-      <div class="card-sub" id="cost-trend">Today's running total</div>
-      <div style="margin-top:10px;">
-        <div style="font-size:12px; color:var(--text-muted);">This week: <span id="cost-week" style="color:var(--text-accent);font-weight:600;">—</span></div>
-        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">This month: <span id="cost-month" style="color:var(--text-accent);font-weight:600;">—</span></div>
+  <!-- Split Screen: Flow Left | Tasks Right -->
+  <div class="overview-split">
+    <!-- LEFT: Flow Visualization -->
+    <div class="overview-flow-pane">
+      <div class="grid-overlay"></div>
+      <div class="scanline-overlay"></div>
+      <div class="flow-container" id="overview-flow-container">
+        <!-- Flow SVG cloned here by JS -->
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">Loading flow...</div>
       </div>
     </div>
 
-    <!-- 🤖 AI Model -->
-    <div class="card" onclick="openDetailView('models')" style="cursor:pointer;">
-      <div class="card-title"><span class="icon">🤖</span> AI Model</div>
-      <div class="card-value" id="model-primary">—</div>
-      <div class="card-sub">Currently in use</div>
-      <div style="margin-top:10px;">
-        <div style="font-size:12px; color:var(--text-muted);" id="model-breakdown">Loading...</div>
+    <!-- DIVIDER -->
+    <div class="overview-divider"></div>
+
+    <!-- RIGHT: Active Tasks Panel -->
+    <div class="overview-tasks-pane">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:15px;font-weight:700;color:var(--text-primary);">🐝 Active Tasks</span>
+          <span id="overview-tasks-count-badge" style="font-size:11px;color:var(--text-muted);"></span>
+        </div>
+        <span style="font-size:10px;color:var(--text-faint);letter-spacing:0.5px;">⟳ 10s</span>
       </div>
-    </div>
-
-    <!-- ⚡ Actions Taken -->
-    <div class="card" onclick="openDetailView('tools')" style="cursor:pointer;">
-      <div class="card-title"><span class="icon">⚡</span> Actions Taken</div>
-      <div class="card-value" id="tools-active">—</div>
-      <div class="card-sub" id="tools-recent">Recent activity</div>
-      <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;" id="tools-sparklines">
-        <div class="tool-spark" title="Commands run">Commands: <span>—</span></div>
-        <div class="tool-spark" title="Web browsing">Browser: <span>—</span></div>
-        <div class="tool-spark" title="Web searches">Search: <span>—</span></div>
-      </div>
-    </div>
-
-    <!-- 📊 Tokens Used -->
-    <div class="card" onclick="openDetailView('tokens')" style="cursor:pointer;">
-      <div class="card-title"><span class="icon">📊</span> Tokens Used</div>
-      <div class="card-value" id="token-rate">—</div>
-      <div class="card-sub">per minute (last hour)</div>
-      <div style="margin-top:10px;">
-        <div style="font-size:12px; color:var(--text-muted);">Today: <span id="tokens-today" style="color:var(--text-success);font-weight:600;">—</span></div>
-        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Peak: <span id="tokens-peak" style="color:var(--text-accent);font-weight:600;">—</span></div>
-      </div>
-    </div>
-
-    <!-- 💬 Active Sessions -->
-    <div class="card" onclick="switchTab('sessions')" style="cursor:pointer;">
-      <div class="card-title"><span class="icon">💬</span> Active Sessions</div>
-      <div class="card-value" id="hot-sessions-count">—</div>
-      <div class="card-sub">Currently running</div>
-      <div style="margin-top:10px; max-height:50px; overflow:hidden;" id="hot-sessions-list">Loading...</div>
-    </div>
-
-    <!-- 🐝 Sub-Agents -->
-    <div class="card" onclick="switchTab('sessions')" style="cursor:pointer;">
-      <div class="card-title"><span class="icon">🐝</span> Sub-Agents</div>
-      <div class="card-value" id="subagents-count">—</div>
-      <div class="card-sub" id="subagents-status">Workers spawned</div>
-      <div style="margin-top:10px; max-height:60px; overflow:hidden;" id="subagents-preview">Loading...</div>
-    </div>
-  </div>
-
-  <!-- Active Tasks (Mission Control) -->
-  <div class="section-title">🚀 Active Tasks <span style="font-size:12px;font-weight:400;color:var(--text-muted);">auto-refreshes every 5s</span></div>
-  <div id="active-tasks-panel" style="margin-bottom:16px;">
-    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(340px, 1fr));gap:12px;" id="active-tasks-grid">
-      <div class="card" style="text-align:center;padding:32px;color:var(--text-muted);">
-        <div style="font-size:32px;margin-bottom:8px;">🐝</div>
-        <div>Loading active tasks...</div>
+      <div class="tasks-panel-scroll" id="overview-tasks-list">
+        <div style="text-align:center;padding:32px;color:var(--text-muted);">
+          <div style="font-size:28px;margin-bottom:8px;" class="tasks-empty-icon">🐝</div>
+          <div style="font-size:13px;">Loading tasks...</div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Topics/Activity Stream -->
-  <div class="section-title">📋 What's happening now</div>
-  <div class="card">
-    <div style="max-height:200px; overflow-y:auto; font-family:'Inter','SF Mono',monospace; font-size:13px; line-height:1.6;" id="activity-stream">
-      <div style="color:#666;">Parsing recent assistant messages...</div>
+  <!-- Compact Stats Footer Bar -->
+  <div class="stats-footer">
+    <div class="stats-footer-item" onclick="openDetailView('cost')">
+      <span class="stats-footer-icon">💰</span>
+      <div>
+        <div class="stats-footer-label">Spending</div>
+        <div class="stats-footer-value" id="cost-today">$0.00</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;">
+        <div class="stats-footer-sub">wk: <span id="cost-week">—</span></div>
+        <div class="stats-footer-sub">mo: <span id="cost-month">—</span></div>
+      </div>
+      <span id="cost-trend" style="display:none;">Today's running total</span>
     </div>
+    <div class="stats-footer-item" onclick="openDetailView('models')">
+      <span class="stats-footer-icon">🤖</span>
+      <div>
+        <div class="stats-footer-label">Model</div>
+        <div class="stats-footer-value" id="model-primary">—</div>
+      </div>
+      <div id="model-breakdown" style="display:none;">Loading...</div>
+    </div>
+    <div class="stats-footer-item" onclick="openDetailView('tokens')">
+      <span class="stats-footer-icon">📊</span>
+      <div>
+        <div class="stats-footer-label">Tokens</div>
+        <div class="stats-footer-value" id="token-rate">—</div>
+      </div>
+      <span class="stats-footer-sub" style="margin-left:auto;">today: <span id="tokens-today" style="color:var(--text-success);font-weight:600;">—</span></span>
+    </div>
+    <div class="stats-footer-item" onclick="switchTab('sessions')">
+      <span class="stats-footer-icon">💬</span>
+      <div>
+        <div class="stats-footer-label">Sessions</div>
+        <div class="stats-footer-value" id="hot-sessions-count">—</div>
+      </div>
+      <div id="hot-sessions-list" style="display:none;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Hidden elements referenced by existing JS -->
+  <div style="display:none;">
+    <span id="tokens-peak">—</span>
+    <span id="subagents-count">—</span>
+    <span id="subagents-status">—</span>
+    <span id="subagents-preview"></span>
+    <span id="tools-active">—</span>
+    <span id="tools-recent">—</span>
+    <div id="tools-sparklines"><div class="tool-spark"><span>—</span></div><div class="tool-spark"><span>—</span></div><div class="tool-spark"><span>—</span></div></div>
+    <div id="active-tasks-grid"></div>
+    <div id="activity-stream"></div>
   </div>
 
   <!-- System Health (Compact) -->
@@ -1124,6 +1230,12 @@ DASHBOARD_HTML = r"""
     </div>
   </div>
 
+  <!-- Mission Control Tasks -->
+  <div id="mc-bar-wrapper" style="display:none;margin-top:16px;">
+    <div id="mc-summary-bar" style="background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:10px;padding:10px 16px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;box-shadow:var(--card-shadow);"></div>
+    <div id="mc-expanded-section" style="display:none;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-top:none;border-radius:0 0 10px 10px;padding:12px 16px;max-height:300px;overflow-y:auto;"></div>
+  </div>
+
   <!-- Session Tree -->
   <div class="section-title" style="margin-top:24px;">💬 Session Tree</div>
   <div class="card" id="sessions-list">Loading...</div>
@@ -1240,7 +1352,7 @@ DASHBOARD_HTML = r"""
 </div>
 
 <!-- FLOW -->
-<div class="page active" id="page-flow">
+<div class="page" id="page-flow">
   <div class="flow-stats">
     <div class="flow-stat"><span class="flow-stat-label">Messages / min</span><span class="flow-stat-value" id="flow-msg-rate">0</span></div>
     <div class="flow-stat"><span class="flow-stat-label">Actions Taken</span><span class="flow-stat-value" id="flow-event-count">0</span></div>
@@ -1248,157 +1360,161 @@ DASHBOARD_HTML = r"""
     <div class="flow-stat"><span class="flow-stat-label">Tokens Used</span><span class="flow-stat-value" id="flow-tokens">&mdash;</span></div>
   </div>
   <div class="flow-container">
-    <svg id="flow-svg" viewBox="0 0 1200 950" preserveAspectRatio="xMidYMid meet">
+    <svg id="flow-svg" viewBox="0 0 800 550" preserveAspectRatio="xMidYMid meet">
       <defs>
         <pattern id="flow-grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--border-secondary)" stroke-width="0.5"/>
         </pattern>
+        <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.25)" flood-opacity="0.4"/>
+        </filter>
+        <filter id="dropShadowLight" x="-10%" y="-10%" width="130%" height="130%">
+          <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="rgba(0,0,0,0.15)" flood-opacity="0.3"/>
+        </filter>
       </defs>
-      <rect width="1200" height="950" fill="var(--bg-primary)" rx="12"/>
-      <rect width="1200" height="950" fill="url(#flow-grid)"/>
+      <rect width="800" height="550" fill="var(--bg-primary)" rx="12"/>
+      <rect width="800" height="550" fill="url(#flow-grid)"/>
 
       <!-- Human → Channel paths -->
-      <path class="flow-path" id="path-human-tg"       d="M 100 76 C 116 115, 116 152, 100 178"/>
-      <path class="flow-path" id="path-human-sig"      d="M 100 76 C 98 155, 98 275, 100 328"/>
-      <path class="flow-path" id="path-human-wa"       d="M 100 76 C 82 190, 82 410, 100 478"/>
+      <path class="flow-path" id="path-human-tg"  d="M 60 56 C 60 70, 65 85, 75 100"/>
+      <path class="flow-path" id="path-human-sig" d="M 60 56 C 55 90, 60 140, 75 170"/>
+      <path class="flow-path" id="path-human-wa"  d="M 60 56 C 50 110, 55 200, 75 240"/>
 
-      <!-- Connection Paths -->
-      <path class="flow-path" id="path-tg-gw"          d="M 165 200 C 210.2.4, 220 310, 260 335"/>
-      <path class="flow-path" id="path-sig-gw"         d="M 165 350 L 260 350"/>
-      <path class="flow-path" id="path-wa-gw"          d="M 165 500 C 210 500, 220 390, 260 365"/>
-      <path class="flow-path" id="path-gw-brain"       d="M 380 350 C 425 350, 440 365, 480 365"/>
-      <path class="flow-path" id="path-brain-session"   d="M 570 310 L 570 185"/>
-      <path class="flow-path" id="path-brain-exec"      d="M 660 335 C 720 310, 770 160, 810 150"/>
-      <path class="flow-path" id="path-brain-browser"   d="M 660 350 C 760 340, 880.2.4, 920 255"/>
-      <path class="flow-path" id="path-brain-search"    d="M 660 370 C 790 370, 920 380, 960 380"/>
-      <path class="flow-path" id="path-brain-cron"      d="M 660 385 C 760 400, 880 500, 920 510"/>
-      <path class="flow-path" id="path-brain-tts"       d="M 660 400 C 720 450, 770 570, 810 585"/>
-      <path class="flow-path" id="path-brain-memory"    d="M 610 420 C 630 520, 660 600, 670 620"/>
+      <!-- Channel → Gateway paths -->
+      <path class="flow-path" id="path-tg-gw"  d="M 130 120 C 150 120, 160 165, 180 170"/>
+      <path class="flow-path" id="path-sig-gw" d="M 130 190 C 150 190, 160 185, 180 183"/>
+      <path class="flow-path" id="path-wa-gw"  d="M 130 260 C 150 260, 160 200, 180 195"/>
 
-      <!-- Infrastructure paths -->
-      <path class="flow-path flow-path-infra" id="path-gw-network"      d="M 320 377 C 320 570, 720 710, 960 785"/>
-      <path class="flow-path flow-path-infra" id="path-brain-runtime"   d="M 540 420 C 520 570, 310 710, 260 785"/>
-      <path class="flow-path flow-path-infra" id="path-brain-machine"   d="M 570 420 C 570 570, 510 710, 500 785"/>
-      <path class="flow-path flow-path-infra" id="path-memory-storage"  d="M 725 639 C 730 695, 738 750, 740 785"/>
+      <!-- Gateway → Brain -->
+      <path class="flow-path" id="path-gw-brain" d="M 290 183 C 305 183, 315 175, 330 175"/>
+
+      <!-- Brain → Tools -->
+      <path class="flow-path" id="path-brain-session" d="M 510 155 C 530 130, 545 95, 560 89"/>
+      <path class="flow-path" id="path-brain-exec"    d="M 510 160 C 530 150, 545 143, 560 139"/>
+      <path class="flow-path" id="path-brain-browser" d="M 510 175 C 530 175, 545 189, 560 189"/>
+      <path class="flow-path" id="path-brain-search"  d="M 510 185 C 530 200, 545 230, 560 239"/>
+      <path class="flow-path" id="path-brain-cron"    d="M 510 195 C 530 230, 545 275, 560 289"/>
+      <path class="flow-path" id="path-brain-tts"     d="M 510 205 C 530 260, 545 325, 560 339"/>
+      <path class="flow-path" id="path-brain-memory"  d="M 510 215 C 530 290, 545 370, 560 389"/>
+
+      <!-- Infrastructure paths (dashed) -->
+      <path class="flow-path flow-path-infra" id="path-gw-network"    d="M 235 205 C 235 350, 500 400, 590 450"/>
+      <path class="flow-path flow-path-infra" id="path-brain-runtime" d="M 380 220 C 300 350, 150 400, 95 450"/>
+      <path class="flow-path flow-path-infra" id="path-brain-machine" d="M 420 220 C 380 350, 300 400, 260 450"/>
+      <path class="flow-path flow-path-infra" id="path-memory-storage" d="M 615 408 C 550 420, 470 435, 425 450"/>
 
       <!-- Human Origin -->
       <g class="flow-node flow-node-human" id="node-human">
-        <circle cx="100" cy="48" r="28" fill="var(--bg-secondary)" stroke="#7c3aed" stroke-width="2"/>
-        <circle cx="100" cy="40" r="7" fill="#7c3aed" opacity="0.45"/>
-        <path d="M 86 56 Q 86 65 100 65 Q 114 65 114 56" fill="#7c3aed" opacity="0.3"/>
-        <text x="100" y="92" style="font-size:13px;fill:#7c3aed;font-weight:700;" id="flow-human-name">You</text>
-        <text x="100" y="106" style="font-size:9px;fill:var(--text-muted);">origin</text>
+        <circle cx="60" cy="30" r="22" fill="#7c3aed" stroke="#6a2ec0" stroke-width="2" filter="url(#dropShadow)"/>
+        <circle cx="60" cy="24" r="5" fill="#ffffff" opacity="0.6"/>
+        <path d="M 50 38 Q 50 45 60 45 Q 70 45 70 38" fill="#ffffff" opacity="0.4"/>
+        <text x="60" y="68" style="font-size:13px;fill:#7c3aed;font-weight:800;text-anchor:middle;" id="flow-human-name">You</text>
       </g>
 
       <!-- Channel Nodes -->
       <g class="flow-node flow-node-channel" id="node-telegram">
-        <rect x="35" y="178" width="130" height="44"/>
-        <text x="100" y="203">&#x1F4F1; Telegram</text>
+        <rect x="20" y="100" width="110" height="40" rx="10" ry="10" fill="#2196F3" stroke="#1565C0" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="125" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">📱 TG</text>
       </g>
       <g class="flow-node flow-node-channel" id="node-signal">
-        <rect x="35" y="328" width="130" height="44"/>
-        <text x="100" y="353">&#x1F4E1; Signal</text>
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#2E8B7A" stroke="#1B6B5A" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">📡 Signal</text>
       </g>
       <g class="flow-node flow-node-channel" id="node-whatsapp">
-        <rect x="35" y="478" width="130" height="44"/>
-        <text x="100" y="503">&#x1F4AC; WhatsApp</text>
+        <rect x="20" y="240" width="110" height="40" rx="10" ry="10" fill="#43A047" stroke="#2E7D32" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="265" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💬 WA</text>
       </g>
 
       <!-- Gateway -->
       <g class="flow-node flow-node-gateway" id="node-gateway">
-        <rect x="260" y="323" width="120" height="54"/>
-        <text x="320" y="354">&#x1F500; Gateway</text>
-      </g>
-
-      <!-- Session / Context -->
-      <g class="flow-node flow-node-session" id="node-session">
-        <rect x="495" y="132" width="150" height="50"/>
-        <text x="570" y="160">&#x1F4BE; Session</text>
+        <rect x="180" y="160" width="110" height="45" rx="10" ry="10" fill="#37474F" stroke="#263238" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="235" y="188" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🔀 Gateway</text>
       </g>
 
       <!-- Brain -->
       <g class="flow-node flow-node-brain brain-group" id="node-brain">
-        <rect x="480" y="310" width="180" height="110"/>
-        <text x="570" y="345" style="font-size:24px;">&#x1F9E0;</text>
-        <text x="570" y="374" style="font-size:14px;font-weight:700;fill:#f0c040;" id="brain-model-label">Claude</text>
-        <text x="570" y="394" style="font-size:10px;fill:#777;" id="brain-model-text">AI Model</text>
-        <circle cx="570" cy="410" r="4" fill="#e04040">
+        <rect x="330" y="130" width="180" height="90" rx="12" ry="12" fill="#C62828" stroke="#B71C1C" stroke-width="3" filter="url(#dropShadow)"/>
+        <text x="420" y="162" style="font-size:24px;text-anchor:middle;">&#x1F9E0;</text>
+        <text x="420" y="186" style="font-size:18px;font-weight:800;fill:#FFD54F;text-anchor:middle;" id="brain-model-label">Claude</text>
+        <text x="420" y="203" style="font-size:10px;fill:#ffccbc;text-anchor:middle;" id="brain-model-text">claude-opus-4-5</text>
+        <circle cx="420" cy="214" r="4" fill="#FF8A65">
           <animate attributeName="r" values="3;5;3" dur="1.1s" repeatCount="indefinite"/>
           <animate attributeName="opacity" values="0.5;1;0.5" dur="1.1s" repeatCount="indefinite"/>
         </circle>
       </g>
 
       <!-- Tool Nodes -->
+      <g class="flow-node flow-node-session" id="node-session">
+        <rect x="560" y="70" width="110" height="38" rx="10" ry="10" fill="#1565C0" stroke="#0D47A1" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="94" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">📋 Sessions</text>
+        <circle class="tool-indicator" id="ind-session" cx="665" cy="78" r="5" fill="#42A5F5"/>
+      </g>
       <g class="flow-node flow-node-tool" id="node-exec">
-        <rect x="810" y="131" width="100" height="38"/>
-        <text x="860" y="153">&#x26A1; exec</text>
-        <circle class="tool-indicator" id="ind-exec" cx="905" cy="137" r="4" fill="#e06040"/>
+        <rect x="560" y="120" width="110" height="38" rx="10" ry="10" fill="#E65100" stroke="#BF360C" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="144" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">⚡ Exec</text>
+        <circle class="tool-indicator" id="ind-exec" cx="665" cy="128" r="5" fill="#FF6E40"/>
       </g>
       <g class="flow-node flow-node-tool" id="node-browser">
-        <rect x="920" y="236" width="110" height="38"/>
-        <text x="975" y="258">&#x1F310; browser</text>
-        <circle class="tool-indicator" id="ind-browser" cx="1025" cy="242" r="4" fill="#e06040"/>
+        <rect x="560" y="170" width="110" height="38" rx="10" ry="10" fill="#6A1B9A" stroke="#4A148C" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="194" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🌐 Web</text>
+        <circle class="tool-indicator" id="ind-browser" cx="665" cy="178" r="5" fill="#CE93D8"/>
       </g>
       <g class="flow-node flow-node-tool" id="node-search">
-        <rect x="960" y="361" width="130" height="38"/>
-        <text x="1025" y="383">&#x1F50D; web_search</text>
-        <circle class="tool-indicator" id="ind-search" cx="1085" cy="367" r="4" fill="#e06040"/>
+        <rect x="560" y="220" width="110" height="38" rx="10" ry="10" fill="#00695C" stroke="#004D40" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="244" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">&#x1F50D; Search</text>
+        <circle class="tool-indicator" id="ind-search" cx="665" cy="228" r="5" fill="#4DB6AC"/>
       </g>
       <g class="flow-node flow-node-tool" id="node-cron">
-        <rect x="920" y="491" width="100" height="38"/>
-        <text x="970" y="513">&#x23F0; cron</text>
-        <circle class="tool-indicator" id="ind-cron" cx="1015" cy="497" r="4" fill="#e06040"/>
+        <rect x="560" y="270" width="110" height="38" rx="10" ry="10" fill="#546E7A" stroke="#37474F" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="294" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">📅 Cron</text>
+        <circle class="tool-indicator" id="ind-cron" cx="665" cy="278" r="5" fill="#90A4AE"/>
       </g>
       <g class="flow-node flow-node-tool" id="node-tts">
-        <rect x="810" y="566" width="100" height="38"/>
-        <text x="860" y="588">&#x1F50A; tts</text>
-        <circle class="tool-indicator" id="ind-tts" cx="905" cy="572" r="4" fill="#e06040"/>
+        <rect x="560" y="320" width="110" height="38" rx="10" ry="10" fill="#F9A825" stroke="#F57F17" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="344" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">&#x1F5E3;&#xFE0F; TTS</text>
+        <circle class="tool-indicator" id="ind-tts" cx="665" cy="328" r="5" fill="#FFF176"/>
       </g>
       <g class="flow-node flow-node-tool" id="node-memory">
-        <rect x="670" y="601" width="110" height="38"/>
-        <text x="725" y="623">&#x1F4DD; memory</text>
-        <circle class="tool-indicator" id="ind-memory" cx="775" cy="607" r="4" fill="#e06040"/>
+        <rect x="560" y="370" width="110" height="38" rx="10" ry="10" fill="#283593" stroke="#1A237E" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="615" y="394" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">&#x1F4BE; Memory</text>
+        <circle class="tool-indicator" id="ind-memory" cx="665" cy="378" r="5" fill="#7986CB"/>
       </g>
-
-      <!-- Flow direction labels (plain English) -->
-      <text class="flow-label" x="195" y="255" style="font-size:10px;">your message</text>
-      <text class="flow-label" x="195" y="268" style="font-size:8px;fill:#555;">arrives here</text>
-      <text class="flow-label" x="420" y="342" style="font-size:10px;">routes to AI</text>
-      <text class="flow-label" x="548" y="245" style="font-size:10px;">remembers</text>
-      <text class="flow-label" x="548" y="258" style="font-size:8px;fill:#555;">conversation</text>
-      <text class="flow-label" x="750" y="315" style="font-size:10px;">uses tools</text>
-      <text class="flow-label" x="750" y="328" style="font-size:8px;fill:#555;">to get things done</text>
 
       <!-- Infrastructure Layer -->
-      <line class="flow-ground" x1="80" y1="755" x2="1120" y2="755"/>
-      <text class="flow-ground-label" x="600" y="772" style="text-anchor:middle;">I N F R A S T R U C T U R E</text>
+      <line class="flow-ground" x1="20" y1="440" x2="780" y2="440"/>
+      <text class="flow-ground-label" x="400" y="438" style="text-anchor:middle;font-size:10px;">I N F R A S T R U C T U R E</text>
 
       <g class="flow-node flow-node-infra flow-node-runtime" id="node-runtime">
-        <rect x="165" y="785" width="190" height="55"/>
-        <text x="260" y="808" style="font-size:13px !important;">&#x2699;&#xFE0F; Runtime</text>
-        <text class="infra-sub" x="260" y="826" id="infra-runtime-text">Node.js · Linux</text>
+        <rect x="30" y="450" width="130" height="40" rx="8" ry="8" fill="#455A64" stroke="#37474F" filter="url(#dropShadowLight)"/>
+        <text x="95" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x2699;&#xFE0F; Runtime</text>
+        <text class="infra-sub" x="95" y="481" style="fill:#B0BEC5;font-size:9px;text-anchor:middle;" id="infra-runtime-text">Node.js · Linux</text>
       </g>
       <g class="flow-node flow-node-infra flow-node-machine" id="node-machine">
-        <rect x="405" y="785" width="190" height="55"/>
-        <text x="500" y="808" style="font-size:13px !important;">&#x1F5A5;&#xFE0F; Machine</text>
-        <text class="infra-sub" x="500" y="826" id="infra-machine-text">Host</text>
+        <rect x="195" y="450" width="130" height="40" rx="8" ry="8" fill="#4E342E" stroke="#3E2723" filter="url(#dropShadowLight)"/>
+        <text x="260" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x1F5A5;&#xFE0F; Machine</text>
+        <text class="infra-sub" x="260" y="481" style="fill:#BCAAA4;font-size:9px;text-anchor:middle;" id="infra-machine-text">Host</text>
       </g>
       <g class="flow-node flow-node-infra flow-node-storage" id="node-storage">
-        <rect x="645" y="785" width="190" height="55"/>
-        <text x="740" y="808" style="font-size:13px !important;">&#x1F4BF; Storage</text>
-        <text class="infra-sub" x="740" y="826" id="infra-storage-text">Disk</text>
+        <rect x="360" y="450" width="130" height="40" rx="8" ry="8" fill="#5D4037" stroke="#4E342E" filter="url(#dropShadowLight)"/>
+        <text x="425" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x1F4BF; Storage</text>
+        <text class="infra-sub" x="425" y="481" style="fill:#BCAAA4;font-size:9px;text-anchor:middle;" id="infra-storage-text">Disk</text>
       </g>
       <g class="flow-node flow-node-infra flow-node-network" id="node-network">
-        <rect x="885" y="785" width="190" height="55"/>
-        <text x="980" y="808" style="font-size:13px !important;">&#x1F310; Network</text>
-        <text class="infra-sub" x="980" y="826" id="infra-network-text">LAN</text>
+        <rect x="525" y="450" width="130" height="40" rx="8" ry="8" fill="#004D40" stroke="#00332E" filter="url(#dropShadowLight)"/>
+        <text x="590" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x1F310; Network</text>
+        <text class="infra-sub" x="590" y="481" style="fill:#80CBC4;font-size:9px;text-anchor:middle;" id="infra-network-text">LAN</text>
       </g>
 
-      <!-- Infra labels -->
-      <text class="flow-label" x="440" y="680">runtime</text>
-      <text class="flow-label" x="570" y="650">host computer</text>
-      <text class="flow-label" x="720" y="710">file storage</text>
-      <text class="flow-label" x="870" y="660">internet</text>
+      <!-- Legend -->
+      <g transform="translate(100, 510)">
+        <rect x="0" y="0" width="600" height="28" rx="14" ry="14" fill="var(--bg-tertiary)" stroke="var(--border-primary)" stroke-width="1" opacity="0.9"/>
+        <text x="300" y="18" style="font-size:12px;font-weight:600;fill:var(--text-secondary);letter-spacing:1px;text-anchor:middle;">&#x1F4E8; Channels  &#x27A1;&#xFE0F;  🔀 Gateway  &#x27A1;&#xFE0F;  &#x1F9E0; AI Brain  &#x27A1;&#xFE0F;  &#x1F6E0;&#xFE0F; Tools</text>
+      </g>
+
+      <!-- Flow direction labels -->
+      <text class="flow-label" x="120" y="155" style="font-size:9px;">messages in</text>
+      <text class="flow-label" x="300" y="155" style="font-size:9px;">routes to AI</text>
+      <text class="flow-label" x="520" y="155" style="font-size:9px;">uses tools</text>
     </svg>
   </div>
 
@@ -1566,6 +1682,9 @@ async function loadAll() {
   // Load health checks
   loadHealth();
 
+  // Load Mission Control tasks
+  loadMCTasks();
+
   document.getElementById('refresh-time').textContent = 'Updated ' + new Date().toLocaleTimeString();
 
   // Update flow infra details
@@ -1656,23 +1775,27 @@ async function loadSubAgents() {
     }
     document.getElementById('subagents-status').textContent = statusText;
     
-    // Update preview with top sub-agents
+    // Update preview with top sub-agents (human-readable)
     var previewHtml = '';
     if (subagents.length === 0) {
-      previewHtml = '<div style="font-size:11px;color:#666;">No worker bees active</div>';
+      previewHtml = '<div style="font-size:11px;color:#666;">No active tasks</div>';
     } else {
-      var topAgents = subagents.slice(0, 3); // Show top 3
+      // Show active ones first
+      var activeFirst = subagents.filter(function(a){return a.status==='active';}).concat(subagents.filter(function(a){return a.status!=='active';}));
+      var topAgents = activeFirst.slice(0, 3);
       topAgents.forEach(function(agent) {
+        var icon = agent.status === 'active' ? '🔄' : agent.status === 'idle' ? '✅' : '⬜';
+        var name = cleanTaskName(agent.displayName);
+        if (name.length > 40) name = name.substring(0, 37) + '…';
         previewHtml += '<div class="subagent-item">';
-        previewHtml += '<div class="subagent-status ' + agent.status + '"></div>';
-        previewHtml += '<span class="subagent-name">' + agent.displayName + '</span>';
-        previewHtml += '<span class="subagent-task">: ' + agent.task + '</span>';
+        previewHtml += '<span style="font-size:10px;">' + icon + '</span>';
+        previewHtml += '<span class="subagent-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(name) + '</span>';
         previewHtml += '<span class="subagent-runtime">' + agent.runtime + '</span>';
         previewHtml += '</div>';
       });
       
       if (subagents.length > 3) {
-        previewHtml += '<div style="font-size:9px;color:#555;margin-top:4px;">+' + (subagents.length - 3) + ' more workers</div>';
+        previewHtml += '<div style="font-size:9px;color:#555;margin-top:4px;">+' + (subagents.length - 3) + ' more</div>';
       }
     }
     
@@ -1687,40 +1810,159 @@ async function loadSubAgents() {
 
 // === Active Tasks for Overview ===
 var _activeTasksTimer = null;
+function cleanTaskName(raw) {
+  // Strip timestamp prefixes like "[Sun 2026-02-08 18:22 GMT+1] "
+  var name = (raw || '').replace(/^\[.*?\]\s*/, '');
+  // Truncate to first sentence or 80 chars
+  var dot = name.indexOf('. ');
+  if (dot > 10 && dot < 80) name = name.substring(0, dot + 1);
+  if (name.length > 80) name = name.substring(0, 77) + '…';
+  return name || 'Background task';
+}
+
+function detectProjectBadge(text) {
+  var projects = {
+    'mockround': { label: 'MockRound', color: '#7c3aed' },
+    'vedicvoice': { label: 'VedicVoice', color: '#d97706' },
+    'openclaw': { label: 'OpenClaw', color: '#2563eb' },
+    'dashboard': { label: 'Dashboard', color: '#0891b2' },
+    'shopify': { label: 'Shopify', color: '#16a34a' },
+    'sanskrit': { label: 'Sanskrit', color: '#ea580c' },
+    'telegram': { label: 'Telegram', color: '#0088cc' },
+    'discord': { label: 'Discord', color: '#5865f2' },
+  };
+  var lower = (text || '').toLowerCase();
+  for (var key in projects) {
+    if (lower.includes(key)) return projects[key];
+  }
+  return null;
+}
+
+function humanTime(runtimeMs) {
+  if (!runtimeMs || runtimeMs === Infinity) return '';
+  var sec = Math.floor(runtimeMs / 1000);
+  if (sec < 60) return 'Started ' + sec + 's ago';
+  var min = Math.floor(sec / 60);
+  if (min < 60) return 'Started ' + min + ' min ago';
+  var hr = Math.floor(min / 60);
+  if (hr < 24) return 'Started ' + hr + 'h ago';
+  return 'Started ' + Math.floor(hr / 24) + 'd ago';
+}
+
+function humanTimeDone(runtimeMs) {
+  if (!runtimeMs || runtimeMs === Infinity) return '';
+  var sec = Math.floor(runtimeMs / 1000);
+  if (sec < 60) return 'Finished ' + sec + 's ago';
+  var min = Math.floor(sec / 60);
+  if (min < 60) return 'Finished ' + min + ' min ago';
+  var hr = Math.floor(min / 60);
+  if (hr < 24) return 'Finished ' + hr + 'h ago';
+  return 'Finished ' + Math.floor(hr / 24) + 'd ago';
+}
+
 async function loadActiveTasks() {
   try {
     var data = await fetch('/api/subagents').then(r => r.json());
-    var grid = document.getElementById('active-tasks-grid');
+    var grid = document.getElementById('overview-tasks-list') || document.getElementById('active-tasks-grid');
     if (!grid) return;
     var agents = data.subagents || [];
     if (agents.length === 0) {
       grid.innerHTML = '<div class="card" style="text-align:center;padding:24px;color:var(--text-muted);grid-column:1/-1;">'
         + '<div style="font-size:24px;margin-bottom:8px;">✨</div>'
-        + '<div style="font-size:13px;">No active sub-agents — all quiet</div></div>';
+        + '<div style="font-size:13px;">No active tasks — all quiet</div></div>';
       return;
     }
-    var html = '';
+
+    // Group by status: running first, then recently completed, then truly failed
+    var running = [], done = [], failed = [];
     agents.forEach(function(agent) {
-      var statusClass = agent.status === 'active' ? 'running' : agent.status === 'idle' ? 'complete' : 'complete';
-      var badgeText = agent.status === 'active' ? '🟢 Running' : agent.status === 'idle' ? '✅ Complete' : '✅ Done';
-      // Duration
-      var dur = agent.runtime || '—';
-      // Last action
-      var lastAction = '—';
-      if (agent.recentTools && agent.recentTools.length > 0) {
-        var last = agent.recentTools[agent.recentTools.length - 1];
-        lastAction = last.name + ' — ' + last.summary;
-      } else if (agent.lastText) {
-        lastAction = '💭 ' + agent.lastText.substring(0, 80);
+      var isRealFailure = agent.status === 'stale' && agent.abortedLastRun && (agent.outputTokens || 0) === 0;
+      if (agent.status === 'active') running.push(agent);
+      else if (isRealFailure) failed.push(agent);
+      else done.push(agent);
+    });
+    var sorted = running.concat(done).concat(failed);
+
+    // Only show recent ones (last 2 hours for done, all running)
+    sorted = sorted.filter(function(a) {
+      if (a.status === 'active') return true;
+      return a.runtimeMs < 2 * 60 * 60 * 1000; // 2 hours
+    });
+
+    if (sorted.length === 0) {
+      grid.innerHTML = '<div class="card" style="text-align:center;padding:24px;color:var(--text-muted);grid-column:1/-1;">'
+        + '<div style="font-size:24px;margin-bottom:8px;">✨</div>'
+        + '<div style="font-size:13px;">No recent tasks</div></div>';
+      return;
+    }
+
+    var html = '';
+    sorted.forEach(function(agent) {
+      // Determine true completion status: only "failed" if zero output and aborted
+      var isRealFailure = agent.status === 'stale' && agent.abortedLastRun && (agent.outputTokens || 0) === 0;
+      var statusClass = agent.status === 'active' ? 'running' : isRealFailure ? 'failed' : 'complete';
+      var statusEmoji, statusLabel, timeStr;
+      if (agent.status === 'active') {
+        var mins = Math.max(1, Math.floor((agent.runtimeMs || 0) / 60000));
+        statusEmoji = '🔄';
+        statusLabel = 'Running (' + mins + ' min)';
+        timeStr = humanTime(agent.runtimeMs);
+      } else if (isRealFailure) {
+        statusEmoji = '❌';
+        statusLabel = 'Failed';
+        timeStr = humanTimeDone(agent.runtimeMs);
+      } else {
+        statusEmoji = '✅';
+        statusLabel = 'Done';
+        timeStr = humanTimeDone(agent.runtimeMs);
       }
-      html += '<div class="task-card ' + statusClass + '">';
+
+      var taskName = cleanTaskName(agent.displayName);
+      var badge = detectProjectBadge(agent.displayName);
+
+      html += '<div class="task-card ' + statusClass + '" style="cursor:pointer;" onclick="openTaskModal(\'' + escHtml(agent.sessionId).replace(/'/g,"\\'") + '\',\'' + escHtml(taskName).replace(/'/g,"\\'") + '\',\'' + escHtml(agent.key || agent.sessionId).replace(/'/g,"\\'") + '\')">';
       if (agent.status === 'active') html += '<div class="task-card-pulse active"></div>';
       html += '<div class="task-card-header">';
-      html += '<div class="task-card-name">' + escHtml(agent.displayName || agent.uuid.substring(0,8)) + '</div>';
-      html += '<span class="task-card-badge ' + statusClass + '">' + badgeText + '</span>';
+      html += '<div class="task-card-name">' + escHtml(taskName) + '</div>';
+      html += '<span class="task-card-badge ' + statusClass + '">' + statusEmoji + ' ' + statusLabel + '</span>';
       html += '</div>';
-      html += '<div class="task-card-duration">⏱ ' + escHtml(dur) + '</div>';
-      html += '<div class="task-card-action">' + escHtml(lastAction.substring(0, 120)) + '</div>';
+      // Project badge + human time
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+      if (badge) {
+        html += '<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:' + badge.color + '22;color:' + badge.color + ';border:1px solid ' + badge.color + '44;">' + badge.label + '</span>';
+      }
+      if (timeStr) {
+        html += '<span style="font-size:12px;color:var(--text-muted);">' + escHtml(timeStr) + '</span>';
+      }
+      html += '</div>';
+      // Show/Hide details toggle + logs link
+      var detailId = 'task-detail-' + agent.sessionId.replace(/[^a-z0-9]/gi, '');
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-top:4px;">';
+      html += '<span style="font-size:11px;color:var(--text-tertiary);cursor:pointer;user-select:none;" onclick="event.stopPropagation();var d=document.getElementById(\'' + detailId + '\');var open=d.style.display!==\'none\';d.style.display=open?\'none\':\'block\';this.textContent=open?\'▶ Show details\':\'▼ Hide details\';">▶ Show details</span>';
+      html += '<span style="font-size:11px;color:var(--text-link);cursor:pointer;opacity:0.7;" onclick="event.stopPropagation();switchTab(\'sessions\');setTimeout(function(){openSAActivity(\'' + agent.sessionId + '\',\'' + escHtml(agent.displayName).replace(/'/g, "\\'") + '\',\'' + agent.status + '\')},300)">📋 View logs</span>';
+      html += '</div>';
+      // Collapsible technical details
+      html += '<div id="' + detailId + '" style="display:none;margin-top:8px;padding:10px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;font-size:11px;line-height:1.7;color:var(--text-tertiary);">';
+      html += '<div><span style="color:var(--text-muted);">Session:</span> <span style="font-family:monospace;font-size:10px;">' + escHtml(agent.sessionId) + '</span></div>';
+      html += '<div><span style="color:var(--text-muted);">Key:</span> <span style="font-family:monospace;font-size:10px;">' + escHtml(agent.key) + '</span></div>';
+      html += '<div><span style="color:var(--text-muted);">Model:</span> ' + escHtml(agent.model || 'unknown') + '</div>';
+      html += '<div><span style="color:var(--text-muted);">Channel:</span> ' + escHtml(agent.channel || '—') + '</div>';
+      html += '<div><span style="color:var(--text-muted);">Runtime:</span> ' + escHtml(agent.runtime) + ' (' + Math.round((agent.runtimeMs||0)/1000) + 's)</div>';
+      // Full task prompt
+      html += '<div style="margin-top:6px;"><span style="color:var(--text-muted);">Full prompt:</span></div>';
+      html += '<div style="font-size:10px;font-family:monospace;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto;padding:6px;background:var(--bg-primary);border-radius:4px;margin-top:2px;">' + escHtml(agent.displayName) + '</div>';
+      // Recent tool calls
+      if (agent.recentTools && agent.recentTools.length > 0) {
+        html += '<div style="margin-top:6px;"><span style="color:var(--text-muted);">Recent tools:</span></div>';
+        agent.recentTools.forEach(function(t) {
+          html += '<div style="font-size:10px;font-family:monospace;color:var(--text-tertiary);"><span style="color:var(--text-accent);">' + escHtml(t.name) + '</span> ' + escHtml(t.summary) + '</div>';
+        });
+      }
+      if (agent.lastText) {
+        html += '<div style="margin-top:6px;"><span style="color:var(--text-muted);">Last output:</span></div>';
+        html += '<div style="font-size:10px;font-style:italic;color:var(--text-tertiary);max-height:60px;overflow-y:auto;">' + escHtml(agent.lastText) + '</div>';
+      }
+      html += '</div>';
       html += '</div>';
     });
     grid.innerHTML = html;
@@ -2186,6 +2428,100 @@ async function loadMemory() {
     html += '</div>';
   });
   document.getElementById('memory-list').innerHTML = html || 'No memory files';
+}
+
+// ===== Mission Control Summary Bar =====
+var _mcData = null;
+var _mcExpanded = null;
+var _mcRefreshTimer = null;
+
+async function loadMCTasks() {
+  try {
+    var r = await fetch('/api/mc-tasks');
+    var data = await r.json();
+    var wrapper = document.getElementById('mc-bar-wrapper');
+    if (!data.available) { wrapper.style.display='none'; return; }
+    wrapper.style.display='';
+    var tasks = data.tasks || [];
+    var cols = [
+      {key:'inbox', label:'Inbox', color:'#3b82f6', bg:'#3b82f620', icon:'📥', tasks:[]},
+      {key:'in_progress', label:'In Progress', color:'#16a34a', bg:'#16a34a20', icon:'🔄', tasks:[]},
+      {key:'review', label:'Review', color:'#d97706', bg:'#d9770620', icon:'👀', tasks:[]},
+      {key:'blocked', label:'Blocked', color:'#dc2626', bg:'#dc262620', icon:'🚫', tasks:[]},
+      {key:'done', label:'Done', color:'#6b7280', bg:'#6b728020', icon:'✅', tasks:[]}
+    ];
+    tasks.forEach(function(t) {
+      var col = t.column || 'inbox';
+      var c = cols.find(function(x){return x.key===col;});
+      if (c) c.tasks.push(t);
+    });
+    _mcData = cols;
+    var bar = document.getElementById('mc-summary-bar');
+    var html = '<span style="font-size:12px;font-weight:700;color:var(--text-tertiary);margin-right:4px;">🎯 MC</span>';
+    cols.forEach(function(c, i) {
+      if (i > 0) html += '<span style="color:var(--text-faint);font-size:12px;margin:0 2px;">│</span>';
+      var active = _mcExpanded === c.key ? 'outline:2px solid '+c.color+';outline-offset:-2px;' : '';
+      html += '<span onclick="toggleMCColumn(\''+c.key+'\')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:16px;background:'+c.bg+';'+active+'transition:all 0.15s;">';
+      html += '<span style="font-size:12px;">'+c.icon+'</span>';
+      html += '<span style="font-size:11px;color:var(--text-secondary);">'+c.label+'</span>';
+      html += '<span style="font-size:12px;font-weight:700;color:'+c.color+';min-width:16px;text-align:center;">'+c.tasks.length+'</span>';
+      html += '</span>';
+    });
+    var total = tasks.length;
+    html += '<span style="margin-left:auto;font-size:10px;color:var(--text-muted);">'+total+' tasks</span>';
+    bar.innerHTML = html;
+    if (_mcExpanded) renderMCExpanded(_mcExpanded);
+  } catch(e) {
+    var w = document.getElementById('mc-bar-wrapper');
+    if (w) w.style.display='none';
+  }
+}
+
+function toggleMCColumn(key) {
+  if (_mcExpanded === key) { _mcExpanded = null; document.getElementById('mc-expanded-section').style.display='none'; }
+  else { _mcExpanded = key; renderMCExpanded(key); }
+  // Re-render bar to update active pill
+  if (_mcData) {
+    var bar = document.getElementById('mc-summary-bar');
+    var cols = _mcData;
+    var html = '<span style="font-size:12px;font-weight:700;color:var(--text-tertiary);margin-right:4px;">🎯 MC</span>';
+    cols.forEach(function(c, i) {
+      if (i > 0) html += '<span style="color:var(--text-faint);font-size:12px;margin:0 2px;">│</span>';
+      var active = _mcExpanded === c.key ? 'outline:2px solid '+c.color+';outline-offset:-2px;' : '';
+      html += '<span onclick="toggleMCColumn(\''+c.key+'\')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:16px;background:'+c.bg+';'+active+'transition:all 0.15s;">';
+      html += '<span style="font-size:12px;">'+c.icon+'</span>';
+      html += '<span style="font-size:11px;color:var(--text-secondary);">'+c.label+'</span>';
+      html += '<span style="font-size:12px;font-weight:700;color:'+c.color+';min-width:16px;text-align:center;">'+c.tasks.length+'</span>';
+      html += '</span>';
+    });
+    var total = cols.reduce(function(s,c){return s+c.tasks.length;},0);
+    html += '<span style="margin-left:auto;font-size:10px;color:var(--text-muted);">'+total+' tasks</span>';
+    bar.innerHTML = html;
+  }
+}
+
+function renderMCExpanded(key) {
+  var sec = document.getElementById('mc-expanded-section');
+  if (!_mcData) { sec.style.display='none'; return; }
+  var col = _mcData.find(function(c){return c.key===key;});
+  if (!col || col.tasks.length === 0) { sec.style.display='block'; sec.innerHTML='<div style="font-size:12px;color:var(--text-muted);padding:4px;">No tasks in '+col.label+'</div>'; return; }
+  sec.style.display='block';
+  var html = '<div style="font-size:11px;font-weight:700;color:'+col.color+';margin-bottom:8px;">'+col.icon+' '+col.label+' ('+col.tasks.length+')</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px;">';
+  col.tasks.forEach(function(t) {
+    var title = t.title || '—';
+    var badge = t.companyId ? '<span style="font-size:9px;background:var(--bg-secondary);padding:1px 5px;border-radius:3px;color:var(--text-muted);margin-left:6px;">'+t.companyId+'</span>' : '';
+    html += '<div style="font-size:12px;color:var(--text-secondary);padding:4px 8px;background:var(--bg-secondary);border-radius:6px;border-left:3px solid '+col.color+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="'+(t.title||'').replace(/"/g,'&quot;')+'">'+title+badge+'</div>';
+  });
+  html += '</div>';
+  sec.innerHTML = html;
+}
+
+// MC auto-refresh every 30s
+if (!_mcRefreshTimer) {
+  _mcRefreshTimer = setInterval(function() {
+    if (document.querySelector('.nav-tab.active')?.textContent?.trim() === 'Overview') loadMCTasks();
+  }, 30000);
 }
 
 // ===== Health Checks =====
@@ -2824,7 +3160,7 @@ function processFlowEvent(line) {
   try {
     var obj = JSON.parse(line);
     msg = ((obj.msg || '') + ' ' + (obj.message || '') + ' ' + (obj.name || '') + ' ' + (obj['0'] || '') + ' ' + (obj['1'] || '')).toLowerCase();
-    level = (obj.logLevelName || obj.level || '').toLowerCase();
+    level = (obj.logLevelName || obj.level || (obj._meta && obj._meta.logLevelName) || '').toLowerCase();
   } catch(e) { msg = line.toLowerCase(); }
 
   if (level === 'error' || level === 'fatal') { triggerError(); return; }
@@ -2900,19 +3236,424 @@ function processFlowEvent(line) {
     triggerOutbound(ch);
     return;
   }
+
+  // Catch embedded run lifecycle events
+  if (msg.includes('embedded run start') && !msg.includes('tool') && !msg.includes('prompt') && !msg.includes('agent')) {
+    if (now - (flowThrottles['run-start']||0) < 1000) return;
+    flowThrottles['run-start'] = now;
+    var ch = 'tg';
+    if (msg.includes('messagechannel=signal')) ch = 'sig';
+    else if (msg.includes('messagechannel=whatsapp')) ch = 'wa';
+    else if (msg.includes('messagechannel=heartbeat')) { addFlowFeedItem('💓 Heartbeat run started', '#4a7090'); return; }
+    addFlowFeedItem('🧠 AI run started (' + (ch === 'tg' ? 'Telegram' : ch === 'wa' ? 'WhatsApp' : 'Signal') + ')', '#a080f0');
+    triggerInbound(ch);
+    flowStats.msgTimestamps.push(now);
+    return;
+  }
+  if (msg.includes('embedded run agent end') || msg.includes('embedded run prompt end')) {
+    if (now - (flowThrottles['run-end']||0) < 1000) return;
+    flowThrottles['run-end'] = now;
+    addFlowFeedItem('✅ AI processing complete', '#50e080');
+    return;
+  }
+  if (msg.includes('session state') && msg.includes('new=processing')) {
+    if (now - (flowThrottles['session-active']||0) < 2000) return;
+    flowThrottles['session-active'] = now;
+    addFlowFeedItem('⚡ Session activated', '#f0c040');
+    return;
+  }
+  if (msg.includes('lane enqueue') && msg.includes('main')) {
+    if (now - (flowThrottles['lane']||0) < 2000) return;
+    flowThrottles['lane'] = now;
+    addFlowFeedItem('📥 Task queued', '#8090b0');
+    return;
+  }
+  if (msg.includes('tool end') || msg.includes('tool_end')) {
+    if (now - (flowThrottles['tool-end']||0) < 300) return;
+    flowThrottles['tool-end'] = now;
+    addFlowFeedItem('✔️ Tool completed', '#50c070');
+    return;
+  }
+}
+
+// === Overview Split-Screen: Clone flow SVG into overview pane ===
+function initOverviewFlow() {
+  var srcSvg = document.getElementById('flow-svg');
+  var container = document.getElementById('overview-flow-container');
+  if (!srcSvg || !container) return;
+  // Clone the SVG into the overview pane
+  var clone = srcSvg.cloneNode(true);
+  clone.id = 'overview-flow-svg';
+  clone.style.width = '100%';
+  clone.style.height = '100%';
+  clone.style.minWidth = '0';
+  // Rename filter IDs in clone to avoid duplicate-id conflicts with original SVG
+  var filters = clone.querySelectorAll('filter[id]');
+  filters.forEach(function(f) {
+    var oldId = f.id;
+    var newId = 'ov-' + oldId;
+    f.id = newId;
+    clone.querySelectorAll('[filter="url(#' + oldId + ')"]').forEach(function(el) {
+      el.setAttribute('filter', 'url(#' + newId + ')');
+    });
+  });
+  container.innerHTML = '';
+  container.appendChild(clone);
+}
+
+// === Overview Tasks Panel (right side) ===
+var _ovTasksTimer = null;
+window._ovExpandedSet = {};  // track which detail panels are open across refreshes
+
+function _ovTimeLabel(agent) {
+  var ms = agent.runtimeMs || 0;
+  var sec = Math.floor(ms / 1000);
+  var min = Math.floor(sec / 60);
+  var hr = Math.floor(min / 60);
+  if (agent.status === 'active') {
+    if (min < 1) return 'Running (' + sec + 's)';
+    if (min < 60) return 'Running (' + min + ' min)';
+    return 'Running (' + hr + 'h ' + (min % 60) + 'm)';
+  }
+  if (sec < 60) return 'Finished ' + sec + 's ago';
+  if (min < 60) return 'Finished ' + min + ' min ago';
+  if (hr < 24) return 'Finished ' + hr + 'h ago';
+  return 'Finished ' + Math.floor(hr / 24) + 'd ago';
+}
+
+function _ovRenderCard(agent, idx) {
+  var isRealFailure = agent.status === 'stale' && agent.abortedLastRun && (agent.outputTokens || 0) === 0;
+  var sc = agent.status === 'active' ? 'running' : isRealFailure ? 'failed' : 'complete';
+  var taskName = cleanTaskName(agent.displayName);
+  var badge = detectProjectBadge(agent.displayName);
+  var timeLabel = _ovTimeLabel(agent);
+  var detailId = 'ovd2-' + idx;
+  var isOpen = !!(window._ovExpandedSet || {})[agent.sessionId];
+  var tokTotal = (agent.inputTokens || 0) + (agent.outputTokens || 0);
+  var cmdsRun = (agent.recentTools || []).length;
+
+  var h = '';
+  // Card with left color bar (via border-left on ov-task-card class)
+  h += '<div class="ov-task-card ' + sc + '" style="cursor:pointer;" onclick="openTaskModal(\'' + escHtml(agent.sessionId).replace(/'/g,"\\'") + '\',\'' + escHtml(taskName).replace(/'/g,"\\'") + '\',\'' + escHtml(agent.key).replace(/'/g,"\\'") + '\')">';
+  // Row 1: status dot + name + status badge
+  h += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">';
+  h += '<span class="status-dot ' + sc + '" style="margin-top:5px;"></span>';
+  h += '<div style="flex:1;min-width:0;">';
+  h += '<div style="font-weight:700;font-size:14px;color:var(--text-primary);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + escHtml(taskName) + '</div>';
+  // Row 2: project pill + time
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">';
+  if (badge) {
+    h += '<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:' + badge.color + '18;color:' + badge.color + ';border:1px solid ' + badge.color + '33;">' + badge.label + '</span>';
+  }
+  h += '<span style="font-size:12px;color:var(--text-muted);">' + escHtml(timeLabel) + '</span>';
+  h += '</div>';
+  h += '</div>';
+  // Status badge top-right
+  h += '<span class="task-card-badge ' + sc + '" style="flex-shrink:0;">' + (sc === 'running' ? '🔄' : sc === 'failed' ? '❌' : '✅') + '</span>';
+  h += '</div>';
+  // Row 3: Show details toggle
+  h += '<button class="ov-toggle-btn" onclick="event.stopPropagation();var d=document.getElementById(\'' + detailId + '\');var o=d.classList.toggle(\'open\');this.textContent=o?\'▼ Hide details\':\'▶ Show details\';if(o){window._ovExpandedSet=window._ovExpandedSet||{};window._ovExpandedSet[\'' + escHtml(agent.sessionId) + '\']=true;}else{delete window._ovExpandedSet[\'' + escHtml(agent.sessionId) + '\'];}">' + (isOpen ? '▼ Hide details' : '▶ Show details') + '</button>';
+  // Collapsible details
+  h += '<div class="ov-details' + (isOpen ? ' open' : '') + '" id="' + detailId + '">';
+  h += '<div><span style="color:var(--text-muted);">Session:</span> <span style="font-family:monospace;font-size:10px;">' + escHtml(agent.sessionId) + '</span></div>';
+  h += '<div><span style="color:var(--text-muted);">Key:</span> <span style="font-family:monospace;font-size:10px;">' + escHtml(agent.key) + '</span></div>';
+  h += '<div><span style="color:var(--text-muted);">Model:</span> ' + escHtml(agent.model || 'unknown') + '</div>';
+  if (tokTotal > 0) h += '<div><span style="color:var(--text-muted);">Tokens:</span> ' + tokTotal.toLocaleString() + ' (' + (agent.inputTokens||0).toLocaleString() + ' in / ' + (agent.outputTokens||0).toLocaleString() + ' out)</div>';
+  if (cmdsRun > 0) h += '<div><span style="color:var(--text-muted);">Commands run:</span> ' + cmdsRun + '</div>';
+  if (agent.recentTools && agent.recentTools.length > 0) {
+    h += '<div style="margin-top:6px;"><span style="color:var(--text-muted);">Recent tools:</span></div>';
+    agent.recentTools.forEach(function(t) {
+      h += '<div style="font-size:10px;font-family:monospace;"><span style="color:var(--text-accent);">' + escHtml(t.name) + '</span> ' + escHtml(t.summary) + '</div>';
+    });
+  }
+  h += '<div style="margin-top:6px;"><span style="color:var(--text-muted);">Full prompt:</span></div>';
+  h += '<div style="white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto;padding:6px;background:var(--bg-primary);border-radius:4px;margin-top:2px;font-size:10px;">' + escHtml(agent.displayName) + '</div>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+async function loadOverviewTasks() {
+  try {
+    var data = await fetch('/api/subagents').then(function(r){return r.json();});
+    var el = document.getElementById('overview-tasks-list');
+    var countBadge = document.getElementById('overview-tasks-count-badge');
+    if (!el) return;
+    var agents = data.subagents || [];
+
+    // Also load into hidden active-tasks-grid for compatibility
+    loadActiveTasks();
+
+    if (agents.length === 0) {
+      if (countBadge) countBadge.textContent = '';
+      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text-muted);">'
+        + '<div style="font-size:32px;margin-bottom:12px;" class="tasks-empty-icon">😴</div>'
+        + '<div style="font-size:14px;font-weight:600;color:var(--text-tertiary);margin-bottom:4px;">No active tasks</div>'
+        + '<div style="font-size:12px;">The AI is idle.</div></div>';
+      return;
+    }
+
+    var running = [], done = [], failed = [];
+    agents.forEach(function(a) {
+      var isRealFailure = a.status === 'stale' && a.abortedLastRun && (a.outputTokens || 0) === 0;
+      if (a.status === 'active') running.push(a);
+      else if (isRealFailure) failed.push(a);
+      else done.push(a);
+    });
+    // Filter old completed/failed (2h)
+    done = done.filter(function(a) { return a.runtimeMs < 2 * 60 * 60 * 1000; });
+    failed = failed.filter(function(a) { return a.runtimeMs < 2 * 60 * 60 * 1000; });
+
+    if (countBadge) countBadge.textContent = running.length > 0 ? '(' + running.length + ' running)' : '(' + (done.length + failed.length) + ' recent)';
+
+    var totalShown = running.length + done.length + failed.length;
+    if (totalShown === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text-muted);">'
+        + '<div style="font-size:32px;margin-bottom:12px;" class="tasks-empty-icon">😴</div>'
+        + '<div style="font-size:14px;font-weight:600;color:var(--text-tertiary);margin-bottom:4px;">No active tasks</div>'
+        + '<div style="font-size:12px;">The AI is idle.</div></div>';
+      return;
+    }
+
+    var html = '';
+    var cardIdx = 0;
+    if (running.length > 0) {
+      html += '<div class="task-group-header">🔄 Running (' + running.length + ')</div>';
+      running.forEach(function(a) { html += _ovRenderCard(a, cardIdx++); });
+    }
+    if (done.length > 0) {
+      html += '<div class="task-group-header">✅ Recently Completed (' + done.length + ')</div>';
+      done.forEach(function(a) { html += _ovRenderCard(a, cardIdx++); });
+    }
+    if (failed.length > 0) {
+      html += '<div class="task-group-header">❌ Failed (' + failed.length + ')</div>';
+      failed.forEach(function(a) { html += _ovRenderCard(a, cardIdx++); });
+    }
+
+    // Preserve scroll position for smooth update
+    var scrollTop = el.scrollTop;
+    el.innerHTML = html;
+    el.scrollTop = scrollTop;
+  } catch(e) {}
+}
+
+function startOverviewTasksRefresh() {
+  loadOverviewTasks();
+  if (_ovTasksTimer) clearInterval(_ovTasksTimer);
+  _ovTasksTimer = setInterval(loadOverviewTasks, 10000);
+}
+
+// === Task Detail Modal ===
+var _modalSessionId = null;
+var _modalTab = 'summary';
+var _modalAutoRefresh = true;
+var _modalRefreshTimer = null;
+var _modalEvents = [];
+
+function openTaskModal(sessionId, taskName, sessionKey) {
+  _modalSessionId = sessionId;
+  document.getElementById('modal-title').textContent = taskName || sessionId;
+  document.getElementById('modal-session-key').textContent = sessionKey || sessionId;
+  document.getElementById('task-modal-overlay').classList.add('open');
+  document.getElementById('modal-content').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Loading transcript...</div>';
+  _modalTab = 'summary';
+  document.querySelectorAll('.modal-tab').forEach(function(t,i){t.classList.toggle('active',i===0);});
+  loadModalTranscript();
+  if (_modalAutoRefresh) {
+    _modalRefreshTimer = setInterval(loadModalTranscript, 4000);
+  }
+  document.addEventListener('keydown', _modalEscHandler);
+}
+
+function closeTaskModal() {
+  document.getElementById('task-modal-overlay').classList.remove('open');
+  _modalSessionId = null;
+  if (_modalRefreshTimer) { clearInterval(_modalRefreshTimer); _modalRefreshTimer = null; }
+  document.removeEventListener('keydown', _modalEscHandler);
+}
+
+function _modalEscHandler(e) { if (e.key === 'Escape') closeTaskModal(); }
+
+function toggleModalAutoRefresh() {
+  _modalAutoRefresh = document.getElementById('modal-auto-refresh-cb').checked;
+  if (_modalRefreshTimer) { clearInterval(_modalRefreshTimer); _modalRefreshTimer = null; }
+  if (_modalAutoRefresh && _modalSessionId) {
+    _modalRefreshTimer = setInterval(loadModalTranscript, 4000);
+  }
+}
+
+function switchModalTab(tab) {
+  _modalTab = tab;
+  document.querySelectorAll('.modal-tab').forEach(function(t){ t.classList.toggle('active', t.textContent.toLowerCase().indexOf(tab) >= 0 || (tab==='full' && t.textContent==='Full Logs')); });
+  renderModalContent();
+}
+
+async function loadModalTranscript() {
+  if (!_modalSessionId) return;
+  try {
+    var r = await fetch('/api/transcript-events/' + encodeURIComponent(_modalSessionId));
+    var data = await r.json();
+    if (data.error) {
+      document.getElementById('modal-content').innerHTML = '<div style="padding:20px;color:var(--text-error);">Error: ' + escHtml(data.error) + '</div>';
+      return;
+    }
+    _modalEvents = data.events || [];
+    document.getElementById('modal-event-count').textContent = '📊 ' + _modalEvents.length + ' events';
+    document.getElementById('modal-msg-count').textContent = '💬 ' + (data.messageCount || 0) + ' messages';
+    renderModalContent();
+  } catch(e) {
+    document.getElementById('modal-content').innerHTML = '<div style="padding:20px;color:var(--text-error);">Failed to load transcript</div>';
+  }
+}
+
+function renderModalContent() {
+  var el = document.getElementById('modal-content');
+  if (_modalTab === 'summary') renderModalSummary(el);
+  else if (_modalTab === 'narrative') renderModalNarrative(el);
+  else renderModalFull(el);
+}
+
+function renderModalSummary(el) {
+  var events = _modalEvents;
+  // Find first user message as task description
+  var desc = '';
+  var result = '';
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].type === 'user' && !desc) {
+      desc = events[i].text || '';
+      if (desc.length > 500) desc = desc.substring(0, 500) + '...';
+    }
+  }
+  // Find last assistant text as result
+  for (var i = events.length - 1; i >= 0; i--) {
+    if (events[i].type === 'agent' && events[i].text) {
+      result = events[i].text;
+      if (result.length > 1000) result = result.substring(0, 1000) + '...';
+      break;
+    }
+  }
+  var html = '';
+  html += '<div class="summary-section"><div class="summary-label">Task Description</div>';
+  html += '<div class="summary-text">' + escHtml(desc || 'No description found') + '</div></div>';
+  html += '<div class="summary-section"><div class="summary-label">Final Result / Output</div>';
+  html += '<div class="summary-text">' + escHtml(result || 'No result yet...') + '</div></div>';
+  el.innerHTML = html;
+}
+
+function renderModalNarrative(el) {
+  var events = _modalEvents;
+  var html = '';
+  events.forEach(function(evt) {
+    var icon = '', text = '';
+    if (evt.type === 'user') {
+      icon = '👤'; text = 'User sent: <code>' + escHtml((evt.text||'').substring(0, 150)) + '</code>';
+    } else if (evt.type === 'agent') {
+      icon = '🤖'; text = 'Agent said: <code>' + escHtml((evt.text||'').substring(0, 200)) + '</code>';
+    } else if (evt.type === 'thinking') {
+      icon = '💭'; text = 'Agent thought about the problem...';
+    } else if (evt.type === 'exec') {
+      icon = '⚡'; text = 'Ran command: <code>' + escHtml(evt.command||'') + '</code>';
+    } else if (evt.type === 'read') {
+      icon = '📖'; text = 'Read file: <code>' + escHtml(evt.file||'') + '</code>';
+    } else if (evt.type === 'tool') {
+      icon = '🔧'; text = 'Called tool: <code>' + escHtml(evt.toolName||'') + '</code>';
+    } else if (evt.type === 'result') {
+      icon = '🔍'; text = 'Got result (' + (evt.text||'').length + ' chars)';
+    } else return;
+    html += '<div class="narrative-item"><span class="narr-icon">' + icon + '</span>' + text + '</div>';
+  });
+  el.innerHTML = html || '<div style="padding:20px;color:var(--text-muted);">No events yet</div>';
+}
+
+function renderModalFull(el) {
+  var events = _modalEvents;
+  var html = '';
+  events.forEach(function(evt, idx) {
+    var icon = '📝', typeClass = '', summary = '', body = '';
+    var ts = evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : '';
+    if (evt.type === 'agent') {
+      icon = '🤖'; typeClass = 'type-agent';
+      summary = '<strong>Agent</strong> — ' + escHtml((evt.text||'').substring(0, 120));
+      body = evt.text || '';
+    } else if (evt.type === 'thinking') {
+      icon = '💭'; typeClass = 'type-thinking';
+      summary = '<strong>Thinking</strong> — ' + escHtml((evt.text||'').substring(0, 120));
+      body = evt.text || '';
+    } else if (evt.type === 'user') {
+      icon = '👤'; typeClass = 'type-user';
+      summary = '<strong>User</strong> — ' + escHtml((evt.text||'').substring(0, 120));
+      body = evt.text || '';
+    } else if (evt.type === 'exec') {
+      icon = '⚡'; typeClass = 'type-exec';
+      summary = '<strong>EXEC</strong> — <code>' + escHtml(evt.command||'') + '</code>';
+      body = evt.command || '';
+    } else if (evt.type === 'read') {
+      icon = '📖'; typeClass = 'type-read';
+      summary = '<strong>READ</strong> — ' + escHtml(evt.file||'');
+      body = evt.file || '';
+    } else if (evt.type === 'tool') {
+      icon = '🔧'; typeClass = 'type-exec';
+      summary = '<strong>' + escHtml(evt.toolName||'tool') + '</strong> — ' + escHtml((evt.args||'').substring(0, 100));
+      body = evt.args || '';
+    } else if (evt.type === 'result') {
+      icon = '🔍'; typeClass = 'type-result';
+      summary = '<strong>Result</strong> — ' + escHtml((evt.text||'').substring(0, 120));
+      body = evt.text || '';
+    } else {
+      summary = '<strong>' + escHtml(evt.type) + '</strong>';
+      body = JSON.stringify(evt, null, 2);
+    }
+    var bodyId = 'evt-body-' + idx;
+    html += '<div class="evt-item ' + typeClass + '">';
+    html += '<div class="evt-header" onclick="var b=document.getElementById(\'' + bodyId + '\');b.classList.toggle(\'open\');">';
+    html += '<span class="evt-icon">' + icon + '</span>';
+    html += '<span class="evt-summary">' + summary + '</span>';
+    html += '<span class="evt-ts">' + escHtml(ts) + '</span>';
+    html += '</div>';
+    html += '<div class="evt-body" id="' + bodyId + '">' + escHtml(body) + '</div>';
+    html += '</div>';
+  });
+  el.innerHTML = html || '<div style="padding:20px;color:var(--text-muted);">No events yet</div>';
 }
 
 // Initialize theme and zoom on page load
 document.addEventListener('DOMContentLoaded', function() {
   initTheme();
   initZoom();
-  // Flow is the default tab - initialize it
+  // Overview is the default tab
+  initOverviewFlow();
   initFlow();
-  // Also preload overview data
   loadAll();
+  startOverviewTasksRefresh();
 });
 </script>
 </div> <!-- end zoom-wrapper -->
+
+<!-- Task Detail Modal -->
+<div class="modal-overlay" id="task-modal-overlay" onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <div class="modal-title" id="modal-title">Task Name</div>
+        <div class="modal-session-key" id="modal-session-key">session-id</div>
+      </div>
+      <div class="modal-header-right">
+        <label class="modal-auto-refresh"><input type="checkbox" id="modal-auto-refresh-cb" checked onchange="toggleModalAutoRefresh()"> Auto-refresh</label>
+        <div class="modal-close" onclick="closeTaskModal()">&times;</div>
+      </div>
+    </div>
+    <div class="modal-tabs">
+      <div class="modal-tab active" onclick="switchModalTab('summary')">Summary</div>
+      <div class="modal-tab" onclick="switchModalTab('narrative')">Narrative</div>
+      <div class="modal-tab" onclick="switchModalTab('full')">Full Logs</div>
+    </div>
+    <div class="modal-content" id="modal-content">Loading...</div>
+    <div class="modal-footer">
+      <span id="modal-event-count">—</span>
+      <span id="modal-msg-count">—</span>
+    </div>
+  </div>
+</div>
 </body>
 </html>
 """
@@ -2926,6 +3667,17 @@ def index():
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
+
+@app.route('/api/mc-tasks')
+def api_mc_tasks():
+    import requests as _req
+    try:
+        r = _req.get(f'{MC_URL}/api/tasks', timeout=3)
+        data = r.json()
+        data['available'] = True
+        return jsonify(data)
+    except Exception:
+        return jsonify({'available': False, 'tasks': []})
 
 @app.route('/api/overview')
 def api_overview():
@@ -3018,13 +3770,26 @@ def api_crons():
     return jsonify({'jobs': _get_crons()})
 
 
+def _find_log_file(ds):
+    """Find log file for a given date string, trying multiple prefixes and dirs."""
+    dirs = [LOG_DIR, '/tmp/openclaw', '/tmp/moltbot']
+    prefixes = ['openclaw-', 'moltbot-']
+    for d in dirs:
+        if not d or not os.path.isdir(d):
+            continue
+        for p in prefixes:
+            f = os.path.join(d, f'{p}{ds}.log')
+            if os.path.exists(f):
+                return f
+    return None
+
 @app.route('/api/logs')
 def api_logs():
     lines_count = int(request.args.get('lines', 100))
     today = datetime.now().strftime('%Y-%m-%d')
-    log_file = os.path.join(LOG_DIR, f'moltbot-{today}.log')
+    log_file = _find_log_file(today)
     lines = []
-    if os.path.exists(log_file):
+    if log_file:
         result = subprocess.run(['tail', f'-{lines_count}', log_file], capture_output=True, text=True)
         lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
     return jsonify({'lines': lines})
@@ -3034,10 +3799,10 @@ def api_logs():
 def api_logs_stream():
     """SSE endpoint — streams new log lines in real-time."""
     today = datetime.now().strftime('%Y-%m-%d')
-    log_file = os.path.join(LOG_DIR, f'moltbot-{today}.log')
+    log_file = _find_log_file(today)
 
     def generate():
-        if not os.path.exists(log_file):
+        if not log_file:
             yield 'data: {"line":"No log file found"}\n\n'
             return
         proc = subprocess.Popen(
@@ -3261,14 +4026,26 @@ def _generate_cost_warnings(today_cost, week_cost, month_cost, trend_data):
     
     return warnings
 
+# ── Usage cache ─────────────────────────────────────────────────────────
+_usage_cache = {'data': None, 'ts': 0}
+_USAGE_CACHE_TTL = 60  # seconds
+
 # ── New Feature APIs ────────────────────────────────────────────────────
 
 @app.route('/api/usage')
 def api_usage():
     """Token/cost tracking from transcript files — Enhanced OTLP workaround."""
+    import time as _time
+    now = _time.time()
+    if _usage_cache['data'] is not None and (now - _usage_cache['ts']) < _USAGE_CACHE_TTL:
+        return jsonify(_usage_cache['data'])
+
     # Prefer OTLP data when available
     if _has_otel_data():
-        return jsonify(_get_otel_usage_data())
+        result = _get_otel_usage_data()
+        _usage_cache['data'] = result
+        _usage_cache['ts'] = now
+        return jsonify(result)
 
     # NEW: Parse transcript JSONL files for real usage data
     sessions_dir = SESSIONS_DIR or os.path.expanduser('~/.moltbot/agents/main/sessions')
@@ -3389,7 +4166,7 @@ def api_usage():
         for k, v in sorted(model_usage.items(), key=lambda x: -x[1])
     ]
     
-    return jsonify({
+    result = {
         'source': 'transcripts',
         'days': days,
         'today': today_tok,
@@ -3402,7 +4179,11 @@ def api_usage():
         'sessionCosts': session_costs,
         'trend': trend_data,
         'warnings': warnings,
-    })
+    }
+    import time as _time
+    _usage_cache['data'] = result
+    _usage_cache['ts'] = _time.time()
+    return jsonify(result)
 
 
 @app.route('/api/usage/export')
@@ -3618,6 +4399,92 @@ def api_transcript(session_id):
     })
 
 
+@app.route('/api/transcript-events/<session_id>')
+def api_transcript_events(session_id):
+    """Parse a session transcript JSONL into structured events for the detail modal."""
+    sessions_dir = SESSIONS_DIR or os.path.expanduser('~/.clawdbot/agents/main/sessions')
+    fpath = os.path.join(sessions_dir, session_id + '.jsonl')
+    fpath = os.path.normpath(fpath)
+    if not fpath.startswith(os.path.normpath(sessions_dir)):
+        return jsonify({'error': 'Access denied'}), 403
+    if not os.path.exists(fpath):
+        return jsonify({'error': 'Transcript not found'}), 404
+
+    events = []
+    msg_count = 0
+    try:
+        with open(fpath) as f:
+            for line in f:
+                try:
+                    obj = json.loads(line.strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+                ts = obj.get('timestamp') or obj.get('time') or obj.get('created_at')
+                ts_val = None
+                if ts:
+                    if isinstance(ts, (int, float)):
+                        ts_val = int(ts * 1000) if ts < 1e12 else int(ts)
+                    else:
+                        try:
+                            ts_val = int(datetime.fromisoformat(str(ts).replace('Z', '+00:00')).timestamp() * 1000)
+                        except Exception:
+                            pass
+
+                obj_type = obj.get('type', '')
+                if obj_type == 'message':
+                    msg = obj.get('message', {})
+                    role = msg.get('role', '')
+                    content = msg.get('content', '')
+                    msg_count += 1
+
+                    if isinstance(content, list):
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            btype = block.get('type', '')
+                            if btype == 'thinking':
+                                events.append({'type': 'thinking', 'text': block.get('thinking', '')[:2000], 'timestamp': ts_val})
+                            elif btype == 'text':
+                                text = block.get('text', '')
+                                if role == 'user':
+                                    events.append({'type': 'user', 'text': text[:3000], 'timestamp': ts_val})
+                                elif role == 'assistant':
+                                    events.append({'type': 'agent', 'text': text[:3000], 'timestamp': ts_val})
+                            elif btype in ('toolCall', 'tool_use'):
+                                name = block.get('name', '?')
+                                args = block.get('arguments') or block.get('input') or {}
+                                args_str = json.dumps(args, indent=2)[:1000] if isinstance(args, dict) else str(args)[:1000]
+                                if name == 'exec':
+                                    cmd = args.get('command', '') if isinstance(args, dict) else ''
+                                    events.append({'type': 'exec', 'command': cmd, 'toolName': name, 'args': args_str, 'timestamp': ts_val})
+                                elif name in ('Read', 'read'):
+                                    fp = (args.get('file_path') or args.get('path') or '') if isinstance(args, dict) else ''
+                                    events.append({'type': 'read', 'file': fp, 'toolName': name, 'args': args_str, 'timestamp': ts_val})
+                                else:
+                                    events.append({'type': 'tool', 'toolName': name, 'args': args_str, 'timestamp': ts_val})
+                    elif isinstance(content, str) and content:
+                        if role == 'user':
+                            events.append({'type': 'user', 'text': content[:3000], 'timestamp': ts_val})
+                        elif role == 'assistant':
+                            events.append({'type': 'agent', 'text': content[:3000], 'timestamp': ts_val})
+                        elif role == 'toolResult':
+                            events.append({'type': 'result', 'text': content[:2000], 'timestamp': ts_val})
+
+                    if role == 'toolResult' and isinstance(content, list):
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get('type') == 'text':
+                                text_parts.append(block.get('text', ''))
+                        if text_parts:
+                            events.append({'type': 'result', 'text': '\n'.join(text_parts)[:2000], 'timestamp': ts_val})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'events': events[-500:], 'messageCount': msg_count, 'totalEvents': len(events)})
+
+
 @app.route('/api/subagents')
 def api_subagents():
     """Get sub-agent sessions from sessions.json index (batch read, no N+1)."""
@@ -3773,6 +4640,9 @@ def api_subagents():
             'model': meta.get('model', 'unknown'),
             'channel': meta.get('channel', meta.get('lastChannel', 'agent')),
             'spawnedBy': meta.get('spawnedBy', ''),
+            'abortedLastRun': meta.get('abortedLastRun', False),
+            'totalTokens': meta.get('totalTokens', 0),
+            'outputTokens': meta.get('outputTokens', 0),
         })
 
     subagents.sort(key=lambda x: x['updatedAt'] or 0, reverse=True)
@@ -3916,8 +4786,8 @@ def api_heatmap():
     for i in range(7):
         d = now - timedelta(days=i)
         ds = d.strftime('%Y-%m-%d')
-        log_file = os.path.join(LOG_DIR, f'moltbot-{ds}.log')
-        if not os.path.exists(log_file):
+        log_file = _find_log_file(ds)
+        if not log_file:
             continue
         try:
             with open(log_file) as f:
@@ -4191,7 +5061,7 @@ def main():
         print(f"  → OTLP endpoint: http://{local_ip}:{args.port}/v1/metrics")
     print()
 
-    app.run(host=args.host, port=args.port, debug=False)
+    app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 
 if __name__ == '__main__':
