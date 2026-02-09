@@ -977,6 +977,22 @@ DASHBOARD_HTML = r"""
   .comp-modal-title { font-size: 18px; font-weight: 700; color: var(--text-primary); }
   .comp-modal-close { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 18px; color: var(--text-tertiary); transition: all 0.15s; }
   .comp-modal-close:hover { background: var(--bg-error); color: var(--text-error); }
+  
+  /* Time Travel Controls */
+  .time-travel-bar { display: none; padding: 12px 20px; border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); }
+  .time-travel-bar.active { display: block; }
+  .time-travel-controls { display: flex; align-items: center; gap: 12px; }
+  .time-travel-toggle { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 6px; padding: 4px 8px; color: var(--text-tertiary); cursor: pointer; font-size: 12px; transition: all 0.15s; }
+  .time-travel-toggle:hover { background: var(--button-hover); }
+  .time-travel-toggle.active { background: var(--bg-accent); color: white; }
+  .time-scrubber { flex: 1; display: flex; align-items: center; gap: 8px; }
+  .time-slider { flex: 1; height: 4px; background: var(--border-primary); border-radius: 2px; cursor: pointer; position: relative; }
+  .time-slider-thumb { width: 16px; height: 16px; background: var(--bg-accent); border-radius: 50%; position: absolute; top: -6px; margin-left: -8px; box-shadow: var(--card-shadow); transition: all 0.15s; }
+  .time-slider-thumb:hover { transform: scale(1.2); }
+  .time-display { font-size: 12px; color: var(--text-secondary); font-weight: 600; min-width: 120px; }
+  .time-nav-btn { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 4px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; color: var(--text-tertiary); }
+  .time-nav-btn:hover { background: var(--button-hover); }
+  .time-nav-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .comp-modal-body { padding: 24px 20px; font-size: 14px; color: var(--text-secondary); line-height: 1.6; max-height: 70vh; overflow-y: auto; }
 
   /* Telegram Chat Bubbles */
@@ -3664,7 +3680,17 @@ var _tgAllMessages = [];
 function openCompModal(nodeId) {
   var c = COMP_MAP[nodeId];
   if (!c) return;
+  
+  // Track current component for time travel
+  window._currentComponentId = nodeId;
+  
   document.getElementById('comp-modal-title').textContent = c.icon + ' ' + c.name;
+  
+  // Reset time travel state when opening new component
+  _timeTravelMode = false;
+  _currentTimeContext = null;
+  document.getElementById('time-travel-toggle').classList.remove('active');
+  document.getElementById('time-travel-bar').classList.remove('active');
 
   if (nodeId === 'node-telegram') {
     _tgOffset = 0;
@@ -3695,9 +3721,17 @@ function openCompModal(nodeId) {
 
   if (c.type === 'tool') {
     var toolKey = nodeId.replace('node-', '');
-    document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading ' + c.name + ' data...</div>';
+    // Show cached data instantly if available, otherwise show loading spinner
+    if (!_toolDataCache[toolKey]) {
+      document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading ' + c.name + ' data...</div>';
+    }
     document.getElementById('comp-modal-overlay').classList.add('open');
-    loadToolData(toolKey, c, false);
+    // If cached, render immediately then refresh in background
+    if (_toolDataCache[toolKey]) {
+      loadToolData(toolKey, c, false);
+    } else {
+      loadToolData(toolKey, c, false);
+    }
     _toolRefreshTimer = setInterval(function() { loadToolData(toolKey, c, true); }, 10000);
     return;
   }
@@ -3932,6 +3966,153 @@ function loadBrainData(isRefresh) {
 var _gwRefreshTimer = null;
 var _gwPage = 0;
 
+// ═══ TIME TRAVEL ═══════════════════════════════════════════════════
+var _timelineData = null;  // {days: [{date, label, events, hasMemory, hours}], today: 'YYYY-MM-DD'}
+var _currentTimeContext = null;  // {date: 'YYYY-MM-DD', hour: null} or null for "now"
+var _timeTravelMode = false;
+
+function toggleTimeTravelMode() {
+  _timeTravelMode = !_timeTravelMode;
+  var toggle = document.getElementById('time-travel-toggle');
+  var bar = document.getElementById('time-travel-bar');
+  
+  if (_timeTravelMode) {
+    toggle.classList.add('active');
+    bar.classList.add('active');
+    loadTimelineData();
+  } else {
+    toggle.classList.remove('active');
+    bar.classList.remove('active');
+    _currentTimeContext = null;
+    // Reload current component data
+    reloadCurrentComponent();
+  }
+}
+
+function loadTimelineData() {
+  fetch('/api/timeline').then(function(r) { return r.json(); }).then(function(data) {
+    _timelineData = data;
+    // Set initial time to "now"
+    _currentTimeContext = null;
+    updateTimeDisplay();
+    updateSliderPosition();
+  }).catch(function(e) {
+    console.error('Failed to load timeline:', e);
+  });
+}
+
+function timeTravel(direction) {
+  if (!_timelineData || !_timelineData.days) return;
+  
+  var days = _timelineData.days;
+  var currentDate = _currentTimeContext ? _currentTimeContext.date : _timelineData.today;
+  var currentIndex = days.findIndex(function(d) { return d.date === currentDate; });
+  
+  if (direction === 'prev-day' && currentIndex > 0) {
+    _currentTimeContext = {date: days[currentIndex - 1].date, hour: null};
+  } else if (direction === 'next-day' && currentIndex < days.length - 1) {
+    _currentTimeContext = {date: days[currentIndex + 1].date, hour: null};
+  } else if (direction === 'now') {
+    _currentTimeContext = null;
+  }
+  
+  updateTimeDisplay();
+  updateSliderPosition();
+  reloadCurrentComponent();
+}
+
+function onTimeSliderClick(event) {
+  if (!_timelineData || !_timelineData.days) return;
+  
+  var slider = document.getElementById('time-slider');
+  var rect = slider.getBoundingClientRect();
+  var percent = (event.clientX - rect.left) / rect.width;
+  
+  var days = _timelineData.days;
+  var index = Math.floor(percent * days.length);
+  index = Math.max(0, Math.min(index, days.length - 1));
+  
+  _currentTimeContext = {date: days[index].date, hour: null};
+  updateTimeDisplay();
+  updateSliderPosition();
+  reloadCurrentComponent();
+}
+
+function updateTimeDisplay() {
+  var display = document.getElementById('time-display');
+  if (!display) return;
+  
+  if (!_currentTimeContext) {
+    display.textContent = 'Live (Now)';
+    display.style.color = 'var(--text-accent)';
+  } else {
+    var day = _timelineData.days.find(function(d) { return d.date === _currentTimeContext.date; });
+    if (day) {
+      display.textContent = day.label + ' (' + day.events + ' events)';
+      display.style.color = 'var(--text-secondary)';
+    }
+  }
+}
+
+function updateSliderPosition() {
+  var thumb = document.getElementById('time-slider-thumb');
+  if (!thumb || !_timelineData) return;
+  
+  if (!_currentTimeContext) {
+    // "Now" - position at the end
+    thumb.style.left = '100%';
+  } else {
+    var days = _timelineData.days;
+    var index = days.findIndex(function(d) { return d.date === _currentTimeContext.date; });
+    if (index >= 0) {
+      var percent = (index / (days.length - 1)) * 100;
+      thumb.style.left = percent + '%';
+    }
+  }
+}
+
+function reloadCurrentComponent() {
+  // Re-trigger the current component modal with time context
+  var overlay = document.getElementById('comp-modal-overlay');
+  if (overlay && overlay.classList.contains('open')) {
+    var body = document.getElementById('comp-modal-body');
+    body.innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading ' + (_currentTimeContext ? 'historical' : 'current') + ' data...</div>';
+    
+    if (window._currentComponentId) {
+      loadComponentWithTimeContext(window._currentComponentId);
+    }
+  }
+}
+
+function loadComponentWithTimeContext(nodeId) {
+  var c = COMP_MAP[nodeId];
+  if (!c) return;
+  
+  // Clear existing refresh timers
+  if (_tgRefreshTimer) { clearInterval(_tgRefreshTimer); _tgRefreshTimer = null; }
+  if (_gwRefreshTimer) { clearInterval(_gwRefreshTimer); _gwRefreshTimer = null; }
+  if (_brainRefreshTimer) { clearInterval(_brainRefreshTimer); _brainRefreshTimer = null; }
+  if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
+  
+  // Load data based on component type
+  if (nodeId === 'node-telegram') {
+    loadTelegramMessagesWithTime();
+  } else if (nodeId === 'node-gateway') {
+    loadGatewayDataWithTime();
+  } else if (nodeId === 'node-brain') {
+    loadBrainDataWithTime();
+  } else if (c.type === 'tool') {
+    var toolKey = nodeId.replace('node-', '');
+    loadToolDataWithTime(toolKey, c);
+  } else {
+    // Default component view
+    var body = document.getElementById('comp-modal-body');
+    var timeContext = _currentTimeContext ? ' (' + _currentTimeContext.date + ')' : '';
+    body.innerHTML = '<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:16px;">' + c.icon + '</div><div style="font-size:16px;font-weight:600;margin-bottom:8px;">' + c.name + timeContext + '</div><div style="color:var(--text-muted);">Historical view coming soon</div><div style="margin-top:8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;">' + c.type + '</div></div>';
+    document.getElementById('comp-modal-footer').textContent = 'Time travel: ' + (_currentTimeContext ? _currentTimeContext.date : 'Live');
+  }
+}
+
 function loadGatewayData(isRefresh) {
   fetch('/api/component/gateway?limit=50&offset=' + (_gwPage * 50)).then(function(r) { return r.json(); }).then(function(data) {
     var body = document.getElementById('comp-modal-body');
@@ -4039,8 +4220,15 @@ function _timeAgo(ts) {
   return Math.floor(secs/86400) + 'd ago';
 }
 
+var _toolDataCache = {};
+var _toolCacheAge = {};
+
 function loadToolData(toolKey, comp, isRefresh) {
+  // If we have cached data and this is first open, skip loading spinner
+  // The fetch below will update with fresh data
   fetch('/api/component/tool/' + toolKey).then(function(r) { return r.json(); }).then(function(data) {
+    _toolDataCache[toolKey] = data;
+    _toolCacheAge[toolKey] = Date.now();
     var body = document.getElementById('comp-modal-body');
     var s = data.stats || {};
     var events = data.events || [];
@@ -4349,10 +4537,31 @@ function closeCompModal() {
   if (_gwRefreshTimer) { clearInterval(_gwRefreshTimer); _gwRefreshTimer = null; }
   if (_brainRefreshTimer) { clearInterval(_brainRefreshTimer); _brainRefreshTimer = null; }
   if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
+  
+  // Reset time travel state
+  _timeTravelMode = false;
+  _currentTimeContext = null;
+  window._currentComponentId = null;
+  
   document.getElementById('comp-modal-overlay').classList.remove('open');
 }
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeCompModal(); });
 document.addEventListener('DOMContentLoaded', initCompClickHandlers);
+
+// Pre-fetch tool data so modals open instantly
+function _prefetchToolData() {
+  var tools = ['session','exec','browser','search','cron','tts','memory','brain','telegram','gateway','runtime','machine'];
+  tools.forEach(function(t) {
+    fetch('/api/component/tool/' + t).then(function(r){return r.json();}).then(function(data) {
+      _toolDataCache[t] = data;
+      _toolCacheAge[t] = Date.now();
+    }).catch(function(){});
+  });
+}
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(_prefetchToolData, 2000); // prefetch 2s after load
+  setInterval(_prefetchToolData, 30000); // refresh cache every 30s
+});
 
 function openTaskModal(sessionId, taskName, sessionKey) {
   _modalSessionId = sessionId;
@@ -4541,7 +4750,23 @@ document.addEventListener('DOMContentLoaded', function() {
   <div class="comp-modal-card">
     <div class="comp-modal-header">
       <div class="comp-modal-title" id="comp-modal-title">Component</div>
-      <div class="comp-modal-close" onclick="closeCompModal()">&times;</div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="time-travel-toggle" id="time-travel-toggle" onclick="toggleTimeTravelMode()" title="Enable time travel">🕰️</div>
+        <div class="comp-modal-close" onclick="closeCompModal()">&times;</div>
+      </div>
+    </div>
+    <div class="time-travel-bar" id="time-travel-bar">
+      <div class="time-travel-controls">
+        <div class="time-nav-btn" onclick="timeTravel('prev-day')" title="Previous day">‹</div>
+        <div class="time-scrubber">
+          <div class="time-slider" id="time-slider" onclick="onTimeSliderClick(event)">
+            <div class="time-slider-thumb" id="time-slider-thumb"></div>
+          </div>
+          <div class="time-display" id="time-display">Loading...</div>
+        </div>
+        <div class="time-nav-btn" onclick="timeTravel('next-day')" title="Next day">›</div>
+        <div class="time-nav-btn" onclick="timeTravel('now')" title="Back to now">⏹</div>
+      </div>
     </div>
     <div class="comp-modal-body" id="comp-modal-body">Loading...</div>
     <div class="comp-modal-footer" id="comp-modal-footer">Last updated: —</div>
@@ -6053,9 +6278,16 @@ def api_channel_telegram():
     return jsonify({'messages': page, 'total': total, 'todayIn': today_in, 'todayOut': today_out})
 
 
+_api_tool_cache = {}
+_api_tool_cache_time = {}
+
 @app.route('/api/component/tool/<name>')
 def api_component_tool(name):
-    """Parse session transcripts for tool-specific events."""
+    """Parse session transcripts for tool-specific events. Cached for 15s."""
+    import time as _time
+    now = _time.time()
+    if name in _api_tool_cache and (now - _api_tool_cache_time.get(name, 0)) < 15:
+        return jsonify(_api_tool_cache[name])
     sessions_dir = SESSIONS_DIR or os.path.expanduser('~/.openclaw/agents/main/sessions')
     if not os.path.isdir(sessions_dir):
         sessions_dir = os.path.expanduser('~/.moltbot/agents/main/sessions')
@@ -6293,6 +6525,8 @@ def api_component_tool(name):
         except Exception:
             result['memory_files'] = []
 
+    _api_tool_cache[name] = result
+    _api_tool_cache_time[name] = _time.time()
     return jsonify(result)
 
 
