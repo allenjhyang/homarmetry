@@ -3702,6 +3702,27 @@ function openCompModal(nodeId) {
     return;
   }
 
+  if (nodeId === 'node-runtime' || nodeId === 'node-machine') {
+    document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading ' + c.name + ' info...</div>';
+    document.getElementById('comp-modal-overlay').classList.add('open');
+    fetch('/api/component/' + nodeId.replace('node-', '')).then(function(r){return r.json();}).then(function(data) {
+      var body = document.getElementById('comp-modal-body');
+      var html = '<div style="text-align:center;margin-bottom:16px;font-size:36px;">' + c.icon + '</div>';
+      var items = data.items || [];
+      html += '<div style="display:flex;flex-direction:column;gap:1px;">';
+      items.forEach(function(item) {
+        var valColor = item.status === 'warning' ? 'var(--text-warning)' : item.status === 'critical' ? 'var(--text-error)' : 'var(--text-primary)';
+        html += '<div class="stat-row"><span class="stat-label">' + escapeHtml(item.label) + '</span><span class="stat-val" style="color:' + valColor + ';">' + escapeHtml(item.value) + '</span></div>';
+      });
+      html += '</div>';
+      body.innerHTML = html;
+      document.getElementById('comp-modal-footer').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+    }).catch(function(e) {
+      document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-error);">Failed to load: ' + e.message + '</div>';
+    });
+    return;
+  }
+
   document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:16px;">' + c.icon + '</div><div style="font-size:16px;font-weight:600;margin-bottom:8px;">' + c.name + '</div><div style="color:var(--text-muted);">Live view coming soon</div><div style="margin-top:8px;font-size:12px;color:var(--text-muted);text-transform:uppercase;">' + c.type + '</div></div>';
   document.getElementById('comp-modal-footer').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
   document.getElementById('comp-modal-overlay').classList.add('open');
@@ -3724,7 +3745,7 @@ function loadTelegramMessages(isRefresh) {
       var text = m.text || (m.direction === 'in' ? '(message received)' : '(reply sent)');
       html += '<div class="tg-bubble ' + dir + '">';
       html += '<div class="tg-sender">' + escapeHtml(m.sender || (dir === 'in' ? 'User' : 'Clawd')) + '</div>';
-      html += '<div class="tg-text">' + escapeHtml(text) + '</div>';
+      html += '<div class="tg-text md-rendered">' + renderMarkdown(text) + '</div>';
       html += '<div class="tg-time">' + date + ' ' + ts + '</div>';
       html += '</div>';
     });
@@ -3756,7 +3777,7 @@ function loadMoreTelegram() {
       var text = m.text || (m.direction === 'in' ? '(message received)' : '(reply sent)');
       html += '<div class="tg-bubble ' + dir + '">';
       html += '<div class="tg-sender">' + escapeHtml(m.sender || (dir === 'in' ? 'User' : 'Clawd')) + '</div>';
-      html += '<div class="tg-text">' + escapeHtml(text) + '</div>';
+      html += '<div class="tg-text md-rendered">' + renderMarkdown(text) + '</div>';
       html += '<div class="tg-time">' + date + ' ' + ts + '</div>';
       html += '</div>';
     });
@@ -3768,6 +3789,47 @@ function loadMoreTelegram() {
 
 function escapeHtml(s) {
   var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  var s = escapeHtml(text);
+  // Code blocks (``` ... ```)
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Headers
+  s = s.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold + italic
+  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  s = s.replace(/_(.+?)_/g, '<em>$1</em>');
+  // Links
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Blockquotes
+  s = s.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  // Unordered lists
+  s = s.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Line breaks (double newline = paragraph, single = br)
+  s = s.replace(/\n\n/g, '</p><p>');
+  s = s.replace(/\n/g, '<br>');
+  s = '<p>' + s + '</p>';
+  // Clean up empty paragraphs
+  s = s.replace(/<p><\/p>/g, '');
+  s = s.replace(/<p>(<h[1-4]>)/g, '$1');
+  s = s.replace(/(<\/h[1-4]>)<\/p>/g, '$1');
+  s = s.replace(/<p>(<pre>)/g, '$1');
+  s = s.replace(/(<\/pre>)<\/p>/g, '$1');
+  s = s.replace(/<p>(<ul>)/g, '$1');
+  s = s.replace(/(<\/ul>)<\/p>/g, '$1');
+  s = s.replace(/<p>(<blockquote>)/g, '$1');
+  s = s.replace(/(<\/blockquote>)<\/p>/g, '$1');
+  return s;
 }
 
 var _brainRefreshTimer = null;
@@ -6220,6 +6282,96 @@ def api_component_tool(name):
             result['memory_files'] = []
 
     return jsonify(result)
+
+
+@app.route('/api/component/runtime')
+def api_component_runtime():
+    """Return runtime environment info."""
+    import platform
+    items = []
+    items.append({'label': 'Python', 'value': platform.python_version(), 'status': 'ok'})
+    items.append({'label': 'OS', 'value': f'{platform.system()} {platform.release()}', 'status': 'ok'})
+    items.append({'label': 'Architecture', 'value': platform.machine(), 'status': 'ok'})
+    # OpenClaw version
+    try:
+        oc_ver = subprocess.check_output(['openclaw', '--version'], stderr=subprocess.STDOUT, timeout=5).decode().strip()
+        items.append({'label': 'OpenClaw', 'value': oc_ver, 'status': 'ok'})
+    except Exception:
+        items.append({'label': 'OpenClaw', 'value': 'unknown', 'status': 'warning'})
+    # Uptime
+    try:
+        up = subprocess.check_output(['uptime', '-p'], timeout=5).decode().strip()
+        items.append({'label': 'Uptime', 'value': up, 'status': 'ok'})
+    except Exception:
+        pass
+    # Memory
+    try:
+        mem = subprocess.check_output(['free', '-h'], timeout=5).decode().strip().split('\n')
+        if len(mem) >= 2:
+            parts = mem[1].split()
+            used, total = parts[2], parts[1]
+            items.append({'label': 'Memory', 'value': f'{used} / {total}', 'status': 'ok'})
+    except Exception:
+        pass
+    # Disk
+    try:
+        df = subprocess.check_output(['df', '-h', '/'], timeout=5).decode().strip().split('\n')
+        if len(df) >= 2:
+            parts = df[1].split()
+            items.append({'label': 'Disk /', 'value': f'{parts[2]} / {parts[1]} ({parts[4]} used)', 'status': 'critical' if int(parts[4].replace('%','')) > 90 else 'warning' if int(parts[4].replace('%','')) > 80 else 'ok'})
+    except Exception:
+        pass
+    # Node.js
+    try:
+        nv = subprocess.check_output(['node', '--version'], timeout=5).decode().strip()
+        items.append({'label': 'Node.js', 'value': nv, 'status': 'ok'})
+    except Exception:
+        pass
+    return jsonify({'items': items})
+
+
+@app.route('/api/component/machine')
+def api_component_machine():
+    """Return machine/host hardware info."""
+    import platform
+    items = []
+    items.append({'label': 'Hostname', 'value': socket.gethostname(), 'status': 'ok'})
+    # IP
+    items.append({'label': 'IP', 'value': get_local_ip(), 'status': 'ok'})
+    # CPU
+    try:
+        with open('/proc/cpuinfo') as f:
+            for line in f:
+                if line.startswith('model name'):
+                    items.append({'label': 'CPU', 'value': line.split(':')[1].strip(), 'status': 'ok'})
+                    break
+    except Exception:
+        items.append({'label': 'CPU', 'value': platform.processor() or 'unknown', 'status': 'ok'})
+    # CPU cores
+    items.append({'label': 'CPU Cores', 'value': str(os.cpu_count() or '?'), 'status': 'ok'})
+    # Load average
+    try:
+        load = os.getloadavg()
+        cores = os.cpu_count() or 1
+        load_str = f'{load[0]:.2f} / {load[1]:.2f} / {load[2]:.2f}'
+        status = 'critical' if load[0] > cores * 2 else 'warning' if load[0] > cores else 'ok'
+        items.append({'label': 'Load (1/5/15m)', 'value': load_str, 'status': status})
+    except Exception:
+        pass
+    # GPU
+    try:
+        gpu = subprocess.check_output(['nvidia-smi', '--query-gpu=name,memory.used,memory.total,utilization.gpu', '--format=csv,noheader,nounits'], timeout=5).decode().strip()
+        for line in gpu.split('\n'):
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) >= 4:
+                items.append({'label': 'GPU', 'value': f'{parts[0]}', 'status': 'ok'})
+                items.append({'label': 'GPU Memory', 'value': f'{parts[1]} MiB / {parts[2]} MiB', 'status': 'ok'})
+                items.append({'label': 'GPU Utilization', 'value': f'{parts[3]}%', 'status': 'warning' if int(parts[3]) > 80 else 'ok'})
+    except Exception:
+        items.append({'label': 'GPU', 'value': 'N/A (no nvidia-smi)', 'status': 'ok'})
+    # Kernel
+    items.append({'label': 'Kernel', 'value': platform.release(), 'status': 'ok'})
+    return jsonify({'items': items})
 
 
 @app.route('/api/component/gateway')
