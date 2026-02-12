@@ -146,6 +146,7 @@ openclaw-dashboard --log-dir /var/log   # Custom log directory
 openclaw-dashboard --sessions-dir ~/data # Custom sessions directory
 openclaw-dashboard --metrics-file ~/m.json # Custom metrics persistence path
 openclaw-dashboard --name "Alice"       # Your name in Flow visualization
+openclaw-dashboard --no-debug           # Disable auto-reload
 ```
 
 ### Environment Variables
@@ -158,6 +159,13 @@ openclaw-dashboard --name "Alice"       # Your name in Flow visualization
 | `OPENCLAW_LOG_DIR` | Log directory | `/tmp/moltbot` |
 | `OPENCLAW_METRICS_FILE` | Metrics persistence file path | `{workspace}/.openclaw-dashboard-metrics.json` |
 | `OPENCLAW_USER` | Your name in Flow tab | `You` |
+| `OPENCLAW_SSE_MAX_SECONDS` | Max duration per SSE stream | `300` |
+
+### Security
+
+- Default bind host is `127.0.0.1` (localhost only).
+- To expose beyond localhost, set `--host 0.0.0.0` and place the dashboard behind your own network/auth controls.
+- Development mode auto-reload is enabled by default. Use `--no-debug` for production-style runs.
 
 ### Auto-Detection
 

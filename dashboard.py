@@ -24,6 +24,7 @@ import argparse
 import subprocess
 import time
 import threading
+import select
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template_string, request, jsonify, Response, make_response
 
@@ -37,7 +38,7 @@ except ImportError:
     metrics_service_pb2 = None
     trace_service_pb2 = None
 
-__version__ = "0.2.6"
+__version__ = "0.2.8"
 
 app = Flask(__name__)
 
@@ -49,6 +50,12 @@ LOG_DIR = None
 SESSIONS_DIR = None
 USER_NAME = None
 CET = timezone(timedelta(hours=1))
+SSE_MAX_SECONDS = 300
+MAX_LOG_STREAM_CLIENTS = 10
+MAX_HEALTH_STREAM_CLIENTS = 10
+_stream_clients_lock = threading.Lock()
+_active_log_stream_clients = 0
+_active_health_stream_clients = 0
 
 # ── OTLP Metrics Store ─────────────────────────────────────────────────
 METRICS_FILE = None  # Set via CLI/env, defaults to {WORKSPACE}/.openclaw-dashboard-metrics.json
@@ -600,72 +607,72 @@ DASHBOARD_HTML = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenClaw Dashboard 🦞</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* Light theme (default) — premium polish */
-    --bg-primary: #ffffff;
-    --bg-secondary: #f8f9fa;
+    /* Light theme (default) */
+    --bg-primary: #f5f7fb;
+    --bg-secondary: #ffffff;
     --bg-tertiary: #ffffff;
-    --bg-hover: #f1f5f9;
-    --bg-accent: #2563eb;
-    --border-primary: rgba(0,0,0,0.06);
-    --border-secondary: rgba(0,0,0,0.03);
-    --text-primary: #1a1a2e;
-    --text-secondary: #475569;
-    --text-tertiary: #64748b;
-    --text-muted: #94a3b8;
-    --text-faint: #cbd5e1;
-    --text-accent: #2563eb;
-    --text-link: #2563eb;
-    --text-success: #16a34a;
-    --text-warning: #d97706;
-    --text-error: #dc2626;
-    --bg-success: #f0fdf4;
-    --bg-warning: #fffbeb;
-    --bg-error: #fef2f2;
-    --log-bg: #f8f9fa;
+    --bg-hover: #f3f5f8;
+    --bg-accent: #0f6fff;
+    --border-primary: #e4e8ee;
+    --border-secondary: #edf1f5;
+    --text-primary: #101828;
+    --text-secondary: #344054;
+    --text-tertiary: #475467;
+    --text-muted: #667085;
+    --text-faint: #98a2b3;
+    --text-accent: #0f6fff;
+    --text-link: #0f6fff;
+    --text-success: #15803d;
+    --text-warning: #b45309;
+    --text-error: #b42318;
+    --bg-success: #ecfdf3;
+    --bg-warning: #fffaeb;
+    --bg-error: #fef3f2;
+    --log-bg: #f7f9fc;
     --file-viewer-bg: #ffffff;
-    --button-bg: #f1f5f9;
-    --button-hover: #e2e8f0;
-    --card-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    --card-shadow-hover: 0 4px 16px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.06);
+    --button-bg: #f3f5f8;
+    --button-hover: #e9eef5;
+    --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.1);
+    --card-shadow-hover: 0 10px 18px rgba(16, 24, 40, 0.08), 0 2px 6px rgba(16, 24, 40, 0.06);
   }
 
   [data-theme="dark"] {
     /* Dark theme */
-    --bg-primary: #0a0a14;
-    --bg-secondary: #12122a;
-    --bg-tertiary: #141428;
-    --bg-hover: #1a1a35;
+    --bg-primary: #0b0f14;
+    --bg-secondary: #121820;
+    --bg-tertiary: #151d28;
+    --bg-hover: #1b2430;
     --bg-accent: #3b82f6;
-    --border-primary: #2a2a4a;
-    --border-secondary: #1a1a30;
-    --text-primary: #e0e0e0;
-    --text-secondary: #ccc;
-    --text-tertiary: #888;
-    --text-muted: #666;
-    --text-faint: #555;
-    --text-accent: #3b82f6;
-    --text-link: #60a0ff;
-    --text-success: #27ae60;
-    --text-warning: #f0c040;
-    --text-error: #e74c3c;
-    --bg-success: #1a3a2a;
-    --bg-warning: #2a2a1a;
-    --bg-error: #3a1a1a;
-    --log-bg: #0a0a14;
-    --file-viewer-bg: #0d0d1a;
-    --button-bg: #2a2a4a;
-    --button-hover: #3a3a5a;
-    --card-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.4);
+    --border-primary: #273243;
+    --border-secondary: #1f2937;
+    --text-primary: #e6edf5;
+    --text-secondary: #c1cad6;
+    --text-tertiary: #98a2b3;
+    --text-muted: #7c8a9d;
+    --text-faint: #667085;
+    --text-accent: #60a5fa;
+    --text-link: #7dd3fc;
+    --text-success: #4ade80;
+    --text-warning: #fbbf24;
+    --text-error: #f87171;
+    --bg-success: #10291c;
+    --bg-warning: #2a2314;
+    --bg-error: #341717;
+    --log-bg: #0f141c;
+    --file-viewer-bg: #111722;
+    --button-bg: #1d2632;
+    --button-hover: #263344;
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    --card-shadow-hover: 0 8px 18px rgba(0,0,0,0.45);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; font-size: 14px; font-weight: 400; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif; background: radial-gradient(1200px 600px at 70% -20%, rgba(15,111,255,0.06), transparent 55%), var(--bg-primary); color: var(--text-primary); min-height: 100vh; font-size: 14px; font-weight: 500; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
-  .nav { background: var(--bg-secondary); border-bottom: none; padding: 6px 16px; display: flex; align-items: center; gap: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; box-shadow: 0 1px 3px rgba(0,0,0,0.06); position: relative; z-index: 10; }
+  .nav { background: color-mix(in srgb, var(--bg-secondary) 90%, transparent); border-bottom: 1px solid var(--border-primary); padding: 8px 16px; display: flex; align-items: center; gap: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; box-shadow: 0 1px 2px rgba(16,24,40,0.06); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); }
   .nav h1 { font-size: 18px; font-weight: 700; color: var(--text-primary); white-space: nowrap; letter-spacing: -0.3px; }
   .nav h1 span { color: var(--text-accent); }
   .theme-toggle { background: var(--button-bg); border: none; border-radius: 8px; padding: 8px 12px; color: var(--text-tertiary); cursor: pointer; font-size: 16px; margin-left: 12px; transition: all 0.15s; box-shadow: var(--card-shadow); }
@@ -797,23 +804,46 @@ DASHBOARD_HTML = r"""
   .flow-stat-label { font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; display: block; }
   .flow-stat-value { font-size: 20px; font-weight: 700; color: var(--text-primary); display: block; margin-top: 2px; }
   #flow-svg { width: 100%; height: auto; display: block; overflow: visible; }
-  #flow-svg text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #flow-svg text { font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; letter-spacing: -0.1px; }
   .flow-node-channel text, .flow-node-gateway text, .flow-node-session text, .flow-node-tool text { fill: #ffffff !important; }
   .flow-node-optimizer text { fill: #ffffff !important; }
   .flow-node-infra > text { fill: #ffffff !important; }
+  /* Refined palette: lower saturation, clearer hierarchy */
+  #node-human circle:first-child { fill: #6d5ce8 !important; stroke: #5b4bd4 !important; }
+  #node-human text { fill: #6d5ce8 !important; }
+  #node-telegram rect { fill: #2f6feb !important; stroke: #1f4fb8 !important; }
+  #node-signal rect { fill: #0f766e !important; stroke: #115e59 !important; }
+  #node-whatsapp rect { fill: #2f9e44 !important; stroke: #237738 !important; }
+  #node-gateway rect { fill: #334155 !important; stroke: #1f2937 !important; }
+  #node-brain rect { fill: #a63a16 !important; stroke: #7c2d12 !important; }
+  #brain-model-label { fill: #fde68a !important; }
+  #brain-model-text { fill: #fed7aa !important; }
+  #node-session rect { fill: #3158d4 !important; stroke: #2648b6 !important; }
+  #node-exec rect { fill: #d97706 !important; stroke: #b45309 !important; }
+  #node-browser rect { fill: #5b39c6 !important; stroke: #4629a1 !important; }
+  #node-search rect { fill: #0f766e !important; stroke: #115e59 !important; }
+  #node-cron rect { fill: #4b5563 !important; stroke: #374151 !important; }
+  #node-tts rect { fill: #a16207 !important; stroke: #854d0e !important; }
+  #node-memory rect { fill: #1e3a8a !important; stroke: #172554 !important; }
+  #node-cost-optimizer rect { fill: #166534 !important; stroke: #14532d !important; }
+  #node-automation-advisor rect { fill: #4338ca !important; stroke: #3730a3 !important; }
+  #node-runtime rect { fill: #334155 !important; stroke: #475569 !important; }
+  #node-machine rect { fill: #424b57 !important; stroke: #2f3945 !important; }
+  #node-storage rect { fill: #52525b !important; stroke: #3f3f46 !important; }
+  #node-network rect { fill: #0f766e !important; stroke: #115e59 !important; }
   .flow-node-clickable { cursor: pointer; }
-  .flow-node-clickable:hover rect, .flow-node-clickable:hover circle { filter: brightness(1.3); }
-  .flow-node rect { rx: 10; ry: 10; stroke-width: 1.5; transition: all 0.3s ease; }
+  .flow-node-clickable:hover rect, .flow-node-clickable:hover circle { filter: brightness(1.08); }
+  .flow-node rect { rx: 12; ry: 12; stroke-width: 1.6; transition: all 0.25s ease; }
   .flow-node-brain rect { stroke-width: 2.5; }
   @keyframes dashFlow { to { stroke-dashoffset: -24; } }
   .flow-path { stroke-dasharray: 8 4; animation: dashFlow 1.2s linear infinite; }
   .flow-path.flow-path-infra { stroke-dasharray: 6 3; animation: dashFlow 2s linear infinite; }
-  .flow-node-channel.active rect { filter: drop-shadow(0 0 12px rgba(106,64,191,0.8)) drop-shadow(0 0 20px rgba(106,64,191,0.4)); stroke-width: 2.5; }
-  .flow-node-gateway.active rect { filter: drop-shadow(0 0 12px rgba(64,128,224,0.8)) drop-shadow(0 0 20px rgba(64,128,224,0.4)); stroke-width: 2.5; }
-  .flow-node-session.active rect { filter: drop-shadow(0 0 12px rgba(64,192,96,0.8)) drop-shadow(0 0 20px rgba(64,192,96,0.4)); stroke-width: 2.5; }
-  .flow-node-tool.active rect { filter: drop-shadow(0 0 8px rgba(224,96,64,0.6)); stroke-width: 2.5; }
-  .flow-node-optimizer.active rect { filter: drop-shadow(0 0 8px rgba(46,125,50,0.8)) drop-shadow(0 0 16px rgba(46,125,50,0.4)); stroke-width: 2.5; }
-  .flow-path { fill: none; stroke: var(--text-muted); stroke-width: 2; stroke-linecap: round; transition: stroke 0.4s, opacity 0.4s; opacity: 0.6; }
+  .flow-node-channel.active rect { filter: drop-shadow(0 0 8px rgba(59,130,246,0.38)); stroke-width: 2.2; }
+  .flow-node-gateway.active rect { filter: drop-shadow(0 0 8px rgba(71,85,105,0.38)); stroke-width: 2.2; }
+  .flow-node-session.active rect { filter: drop-shadow(0 0 8px rgba(49,88,212,0.35)); stroke-width: 2.2; }
+  .flow-node-tool.active rect { filter: drop-shadow(0 0 7px rgba(217,119,6,0.32)); stroke-width: 2.2; }
+  .flow-node-optimizer.active rect { filter: drop-shadow(0 0 7px rgba(22,101,52,0.35)); stroke-width: 2.2; }
+  .flow-path { fill: none; stroke: var(--text-muted); stroke-width: 1.8; stroke-linecap: round; transition: stroke 0.35s, opacity 0.35s; opacity: 0.45; }
   .flow-path.glow-blue { stroke: #4080e0; filter: drop-shadow(0 0 6px rgba(64,128,224,0.6)); }
   .flow-path.glow-yellow { stroke: #f0c040; filter: drop-shadow(0 0 6px rgba(240,192,64,0.6)); }
   .flow-path.glow-green { stroke: #50e080; filter: drop-shadow(0 0 6px rgba(80,224,128,0.6)); }
@@ -822,16 +852,16 @@ DASHBOARD_HTML = r"""
   .brain-group { animation: brainPulse 2.2s ease-in-out infinite; }
   .tool-indicator { opacity: 0.2; transition: opacity 0.3s ease; }
   .tool-indicator.active { opacity: 1; }
-  .flow-label { font-size: 9px !important; fill: var(--text-muted) !important; font-weight: 400 !important; }
+  .flow-label { font-size: 10px !important; fill: var(--text-muted) !important; font-weight: 500 !important; }
   .flow-node-human circle { transition: all 0.3s ease; }
   .flow-node-human.active circle { filter: drop-shadow(0 0 12px rgba(176,128,255,0.7)); }
   @keyframes humanGlow { 0%,100% { filter: drop-shadow(0 0 3px rgba(160,112,224,0.15)); } 50% { filter: drop-shadow(0 0 10px rgba(160,112,224,0.45)); } }
   .flow-node-human { animation: humanGlow 3.5s ease-in-out infinite; }
   .flow-ground { stroke: var(--border-primary); stroke-width: 1; stroke-dasharray: 8 4; }
-  .flow-ground-label { font-size: 10px !important; fill: var(--text-muted) !important; font-weight: 600 !important; letter-spacing: 4px; }
+  .flow-ground-label { font-size: 10px !important; fill: var(--text-muted) !important; font-weight: 700 !important; letter-spacing: 3px; }
   .flow-node-infra rect { rx: 6; ry: 6; stroke-width: 2; stroke-dasharray: 5 2; transition: all 0.3s ease; }
   .flow-node-infra text { font-size: 12px !important; }
-  .flow-node-infra .infra-sub { font-size: 9px !important; fill: var(--text-muted) !important; font-weight: 400 !important; }
+  .flow-node-infra .infra-sub { font-size: 8px !important; fill: var(--text-muted) !important; font-weight: 500 !important; opacity: 0.9; }
   .flow-node-runtime rect { stroke: #4a7090; }
   .flow-node-machine rect { stroke: #606880; }
   .flow-node-storage rect { stroke: #806a30; }
@@ -1152,7 +1182,7 @@ DASHBOARD_HTML = r"""
       padding-bottom: 20px; 
       overflow: visible; 
     }
-    #flow-svg text { font-size: 10px !important; }
+    #flow-svg text { font-size: 11px !important; }
     .flow-label { font-size: 7px !important; }
     .flow-node rect { stroke-width: 1 !important; }
     .flow-node.active rect { stroke-width: 1.5 !important; }
@@ -1397,7 +1427,7 @@ DASHBOARD_HTML = r"""
     <div class="flow-stat"><span class="flow-stat-label">Tokens Used</span><span class="flow-stat-value" id="flow-tokens">&mdash;</span></div>
   </div>
   <div class="flow-container">
-    <svg id="flow-svg" viewBox="0 0 800 550" preserveAspectRatio="xMidYMid meet">
+    <svg id="flow-svg" viewBox="0 0 980 550" preserveAspectRatio="xMidYMid meet">
       <defs>
         <pattern id="flow-grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--border-secondary)" stroke-width="0.5"/>
@@ -1409,8 +1439,8 @@ DASHBOARD_HTML = r"""
           <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="rgba(0,0,0,0.15)" flood-opacity="0.3"/>
         </filter>
       </defs>
-      <rect width="800" height="550" fill="var(--bg-primary)" rx="12"/>
-      <rect width="800" height="550" fill="url(#flow-grid)"/>
+      <rect width="980" height="550" fill="var(--bg-primary)" rx="12"/>
+      <rect width="980" height="550" fill="url(#flow-grid)"/>
 
       <!-- Human → Channel paths -->
       <path class="flow-path" id="path-human-tg"  d="M 60 56 C 60 70, 65 85, 75 100"/>
@@ -1472,8 +1502,8 @@ DASHBOARD_HTML = r"""
       <g class="flow-node flow-node-brain brain-group" id="node-brain">
         <rect x="330" y="130" width="180" height="90" rx="12" ry="12" fill="#C62828" stroke="#B71C1C" stroke-width="3" filter="url(#dropShadow)"/>
         <text x="420" y="162" style="font-size:24px;text-anchor:middle;">&#x1F9E0;</text>
-        <text x="420" y="186" style="font-size:18px;font-weight:800;fill:#FFD54F;text-anchor:middle;" id="brain-model-label">Claude</text>
-        <text x="420" y="203" style="font-size:10px;fill:#ffccbc;text-anchor:middle;" id="brain-model-text">claude-opus-4-5</text>
+        <text x="420" y="186" style="font-size:18px;font-weight:800;fill:#FFD54F;text-anchor:middle;" id="brain-model-label">AI Model</text>
+        <text x="420" y="203" style="font-size:10px;fill:#ffccbc;text-anchor:middle;" id="brain-model-text">unknown</text>
         <circle cx="420" cy="214" r="4" fill="#FF8A65">
           <animate attributeName="r" values="3;5;3" dur="1.1s" repeatCount="indefinite"/>
           <animate attributeName="opacity" values="0.5;1;0.5" dur="1.1s" repeatCount="indefinite"/>
@@ -1519,47 +1549,53 @@ DASHBOARD_HTML = r"""
 
       <!-- Cost Optimizer -->
       <g class="flow-node flow-node-optimizer" id="node-cost-optimizer">
-        <rect x="690" y="370" width="120" height="38" rx="10" ry="10" fill="#2E7D32" stroke="#1B5E20" stroke-width="2" filter="url(#dropShadow)"/>
-        <text x="750" y="394" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">&#x1F4B0; Cost Optimizer</text>
-        <circle class="tool-indicator" id="ind-cost-optimizer" cx="805" cy="378" r="5" fill="#66BB6A"/>
+        <rect x="680" y="370" width="145" height="44" rx="12" ry="12" fill="#2E7D32" stroke="#1B5E20" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="752" y="389" style="font-size:12px;font-weight:700;fill:#ffffff;text-anchor:middle;">
+          <tspan x="752" dy="-5">&#x1F4B0; Cost</tspan>
+          <tspan x="752" dy="13">Optimizer</tspan>
+        </text>
+        <circle class="tool-indicator" id="ind-cost-optimizer" cx="817" cy="378" r="5" fill="#66BB6A"/>
       </g>
 
       <!-- Automation Advisor -->
       <g class="flow-node flow-node-advisor" id="node-automation-advisor">
-        <rect x="820" y="370" width="130" height="38" rx="10" ry="10" fill="#7B1FA2" stroke="#4A148C" stroke-width="2" filter="url(#dropShadow)"/>
-        <text x="885" y="394" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">&#x1F9E0; Automation Advisor</text>
-        <circle class="tool-indicator" id="ind-automation-advisor" cx="945" cy="378" r="5" fill="#BA68C8"/>
+        <rect x="835" y="370" width="145" height="44" rx="12" ry="12" fill="#7B1FA2" stroke="#4A148C" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="907" y="389" style="font-size:12px;font-weight:700;fill:#ffffff;text-anchor:middle;">
+          <tspan x="907" dy="-5">&#x1F9E0; Automation</tspan>
+          <tspan x="907" dy="13">Advisor</tspan>
+        </text>
+        <circle class="tool-indicator" id="ind-automation-advisor" cx="972" cy="378" r="5" fill="#BA68C8"/>
       </g>
 
       <!-- Infrastructure Layer -->
-      <line class="flow-ground" x1="20" y1="440" x2="950" y2="440"/>
+      <line class="flow-ground" x1="20" y1="440" x2="970" y2="440"/>
       <text class="flow-ground-label" x="400" y="438" style="text-anchor:middle;font-size:10px;">I N F R A S T R U C T U R E</text>
 
       <g class="flow-node flow-node-infra flow-node-runtime" id="node-runtime">
         <rect x="30" y="450" width="130" height="40" rx="8" ry="8" fill="#455A64" stroke="#37474F" filter="url(#dropShadowLight)"/>
         <text x="95" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x2699;&#xFE0F; Runtime</text>
-        <text class="infra-sub" x="95" y="481" style="fill:#B0BEC5;font-size:9px;text-anchor:middle;" id="infra-runtime-text">Node.js · Linux</text>
+        <text class="infra-sub" x="95" y="480" style="fill:#B0BEC5;font-size:8px;text-anchor:middle;" id="infra-runtime-text">Node.js · Linux</text>
       </g>
       <g class="flow-node flow-node-infra flow-node-machine" id="node-machine">
         <rect x="195" y="450" width="130" height="40" rx="8" ry="8" fill="#4E342E" stroke="#3E2723" filter="url(#dropShadowLight)"/>
         <text x="260" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x1F5A5;&#xFE0F; Machine</text>
-        <text class="infra-sub" x="260" y="481" style="fill:#BCAAA4;font-size:9px;text-anchor:middle;" id="infra-machine-text">Host</text>
+        <text class="infra-sub" x="260" y="480" style="fill:#BCAAA4;font-size:8px;text-anchor:middle;" id="infra-machine-text">Host</text>
       </g>
       <g class="flow-node flow-node-infra flow-node-storage" id="node-storage">
         <rect x="360" y="450" width="130" height="40" rx="8" ry="8" fill="#5D4037" stroke="#4E342E" filter="url(#dropShadowLight)"/>
         <text x="425" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x1F4BF; Storage</text>
-        <text class="infra-sub" x="425" y="481" style="fill:#BCAAA4;font-size:9px;text-anchor:middle;" id="infra-storage-text">Disk</text>
+        <text class="infra-sub" x="425" y="480" style="fill:#BCAAA4;font-size:8px;text-anchor:middle;" id="infra-storage-text">Disk</text>
       </g>
       <g class="flow-node flow-node-infra flow-node-network" id="node-network">
         <rect x="525" y="450" width="130" height="40" rx="8" ry="8" fill="#004D40" stroke="#00332E" filter="url(#dropShadowLight)"/>
         <text x="590" y="466" style="font-size:13px;fill:#ffffff;font-weight:700;text-anchor:middle;">&#x1F310; Network</text>
-        <text class="infra-sub" x="590" y="481" style="fill:#80CBC4;font-size:9px;text-anchor:middle;" id="infra-network-text">LAN</text>
+        <text class="infra-sub" x="590" y="480" style="fill:#80CBC4;font-size:8px;text-anchor:middle;" id="infra-network-text">LAN</text>
       </g>
 
       <!-- Legend -->
-      <g transform="translate(100, 510)">
-        <rect x="0" y="0" width="600" height="28" rx="14" ry="14" fill="var(--bg-tertiary)" stroke="var(--border-primary)" stroke-width="1" opacity="0.9"/>
-        <text x="300" y="18" style="font-size:12px;font-weight:600;fill:var(--text-secondary);letter-spacing:1px;text-anchor:middle;">&#x1F4E8; Channels  &#x27A1;&#xFE0F;  🔀 Gateway  &#x27A1;&#xFE0F;  &#x1F9E0; AI Brain  &#x27A1;&#xFE0F;  &#x1F6E0;&#xFE0F; Tools</text>
+      <g transform="translate(140, 510)">
+        <rect x="0" y="0" width="700" height="28" rx="14" ry="14" fill="var(--bg-tertiary)" stroke="var(--border-primary)" stroke-width="1" opacity="0.9"/>
+        <text x="350" y="18" style="font-size:12px;font-weight:600;fill:var(--text-secondary);letter-spacing:1px;text-anchor:middle;">&#x1F4E8; Channels  &#x27A1;&#xFE0F;  🔀 Gateway  &#x27A1;&#xFE0F;  &#x1F9E0; AI Brain  &#x27A1;&#xFE0F;  &#x1F6E0;&#xFE0F; Tools</text>
       </g>
 
       <!-- Flow direction labels -->
@@ -1711,38 +1747,98 @@ function formatTime(ms) {
   return new Date(ms).toLocaleString('en-GB', {hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'});
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  var ctrl = new AbortController();
+  var to = setTimeout(function() { ctrl.abort(); }, timeoutMs);
+  try {
+    var r = await fetch(url, {signal: ctrl.signal});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+async function resolvePrimaryModelFallback() {
+  try {
+    var data = await fetchJsonWithTimeout('/api/component/brain?limit=25', 4000);
+    var model = (((data || {}).stats || {}).model || '').trim();
+    return model || 'unknown';
+  } catch (e) {
+    return 'unknown';
+  }
+}
+
+function applyBrainModelToAll(modelName) {
+  if (!modelName) return;
+  var modelText = fitFlowLabel(modelName, 20);
+  document.querySelectorAll('[id$="brain-model-text"]').forEach(function(el) {
+    el.textContent = modelText;
+  });
+  document.querySelectorAll('[id$="brain-model-label"]').forEach(function(label) {
+    var short = modelName.split('/').pop().split('-').slice(0, 2).join(' ');
+    if (!short) short = 'AI Model';
+    label.textContent = fitFlowLabel(short.charAt(0).toUpperCase() + short.slice(1), 14);
+  });
+}
+
+function fitFlowLabel(text, maxLen) {
+  var s = String(text || '').trim();
+  if (!s) return '';
+  if (s.length <= maxLen) return s;
+  return s.substring(0, Math.max(1, maxLen - 1)) + '…';
+}
+
+function setFlowTextAll(idSuffix, text, maxLen) {
+  var fitted = fitFlowLabel(text, maxLen);
+  document.querySelectorAll('[id$="' + idSuffix + '"]').forEach(function(el) {
+    el.textContent = fitted;
+  });
+}
+
 async function loadAll() {
-  var [overview, logs, usage] = await Promise.all([
-    fetch('/api/overview').then(r => r.json()),
-    fetch('/api/logs?lines=30').then(r => r.json()),
-    fetch('/api/usage').then(r => r.json())
-  ]);
+  try {
+    // Render overview quickly; do not block on heavy usage aggregation.
+    var overview = await fetchJsonWithTimeout('/api/overview', 3000);
 
-  // Load new mini dashboard widgets
-  loadMiniWidgets(overview, usage);
-  
-  // Load active tasks panel
-  startActiveTasksRefresh();
-  
-  // Load activity stream
-  loadActivityStream();
+    // Start secondary panels immediately.
+    startActiveTasksRefresh();
+    loadActivityStream();
+    loadHealth();
+    loadMCTasks();
+    document.getElementById('refresh-time').textContent = 'Updated ' + new Date().toLocaleTimeString();
 
-  // Load health checks
-  loadHealth();
+    if (overview.infra) {
+      var i = overview.infra;
+      if (i.runtime) setFlowTextAll('infra-runtime-text', i.runtime, 18);
+      if (i.machine) setFlowTextAll('infra-machine-text', i.machine, 18);
+      if (i.storage) setFlowTextAll('infra-storage-text', i.storage, 16);
+      if (i.network) setFlowTextAll('infra-network-text', 'LAN ' + i.network, 18);
+      if (i.userName) setFlowTextAll('flow-human-name', i.userName, 10);
+    }
 
-  // Load Mission Control tasks
-  loadMCTasks();
+    // If overview cannot determine model yet, use brain endpoint fallback immediately.
+    if (!overview.model || overview.model === 'unknown') {
+      var fallbackModel = await resolvePrimaryModelFallback();
+      if (fallbackModel && fallbackModel !== 'unknown') {
+        overview.model = fallbackModel;
+      }
+    }
+    if (overview.model && overview.model !== 'unknown') {
+      applyBrainModelToAll(overview.model);
+    }
 
-  document.getElementById('refresh-time').textContent = 'Updated ' + new Date().toLocaleTimeString();
-
-  // Update flow infra details
-  if (overview.infra) {
-    var i = overview.infra;
-    if (i.runtime) document.getElementById('infra-runtime-text').textContent = i.runtime;
-    if (i.machine) document.getElementById('infra-machine-text').textContent = i.machine;
-    if (i.storage) document.getElementById('infra-storage-text').textContent = i.storage;
-    if (i.network) document.getElementById('infra-network-text').textContent = 'LAN ' + i.network;
-    if (i.userName) document.getElementById('flow-human-name').textContent = i.userName;
+    // Usage may be slow on first run; keep trying in background with timeout.
+    try {
+      var usage = await fetchJsonWithTimeout('/api/usage', 5000);
+      loadMiniWidgets(overview, usage);
+    } catch (e) {
+      // Keep UI responsive with placeholder values until next refresh.
+      loadMiniWidgets(overview, {todayCost:0, weekCost:0, monthCost:0, month:0, today:0});
+    }
+  } catch (e) {
+    console.error('Initial load failed', e);
+    document.getElementById('refresh-time').textContent = 'Load failed — retrying...';
   }
 }
 
@@ -1782,7 +1878,7 @@ async function loadMiniWidgets(overview, usage) {
   document.getElementById('hot-sessions-list').innerHTML = hotHtml;
   
   // 📈 Model Mix
-  document.getElementById('model-primary').textContent = overview.model || 'claude-opus-4-5';
+  document.getElementById('model-primary').textContent = overview.model || 'unknown';
   var modelBreakdown = '';
   if (usage.modelBreakdown && usage.modelBreakdown.length > 0) {
     var primary = usage.modelBreakdown[0];
@@ -2670,21 +2766,31 @@ startHealthStream();
 // ===== System Health Panel =====
 async function loadSystemHealth() {
   try {
-    var d = await fetch('/api/system-health').then(r => r.json());
+    var d = await fetch('/api/system-health').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+    var services = Array.isArray(d.services) ? d.services : [];
+    var disks = Array.isArray(d.disks) ? d.disks : [];
+    var crons = (d.crons && typeof d.crons === 'object') ? d.crons : {enabled: 0, ok24h: 0, failed: []};
+    var subagents = (d.subagents && typeof d.subagents === 'object') ? d.subagents : {runs: 0, successPct: 0};
 
     // Services
     var shtml = '';
-    d.services.forEach(function(s) {
+    services.forEach(function(s) {
       var dot = s.up ? '🟢' : '🔴';
       shtml += '<div style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-secondary);font-size:13px;">'
         + dot + ' <span style="font-weight:600;color:var(--text-primary);">' + s.name + '</span>'
         + '<span style="color:var(--text-muted);font-size:11px;margin-left:auto;">:' + s.port + '</span></div>';
     });
+    if (!shtml) {
+      shtml = '<div style="padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;font-size:12px;color:var(--text-muted);">No service data available</div>';
+    }
     document.getElementById('sh-services').innerHTML = shtml;
 
     // Disks
     var dhtml = '';
-    d.disks.forEach(function(dk) {
+    disks.forEach(function(dk) {
       var barColor = dk.pct > 90 ? '#dc2626' : (dk.pct > 75 ? '#d97706' : '#16a34a');
       dhtml += '<div style="margin-bottom:10px;">'
         + '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">'
@@ -2694,26 +2800,30 @@ async function loadSystemHealth() {
         + '<div style="width:' + dk.pct + '%;height:100%;background:' + barColor + ';border-radius:6px;transition:width 0.5s;"></div>'
         + '</div></div>';
     });
+    if (!dhtml) {
+      dhtml = '<div style="padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;font-size:12px;color:var(--text-muted);">No disk data available</div>';
+    }
     document.getElementById('sh-disks').innerHTML = dhtml;
 
     // Crons
-    var c = d.crons;
+    var c = crons;
+    var cFailed = Array.isArray(c.failed) ? c.failed : [];
     var chtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
       + '<div style="flex:1;min-width:100px;padding:12px 16px;background:var(--bg-secondary);border-radius:8px;text-align:center;border:1px solid var(--border-secondary);">'
-      + '<div style="font-size:24px;font-weight:700;color:var(--text-primary);">' + c.enabled + '</div>'
+      + '<div style="font-size:24px;font-weight:700;color:var(--text-primary);">' + (c.enabled || 0) + '</div>'
       + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Enabled</div></div>'
       + '<div style="flex:1;min-width:100px;padding:12px 16px;background:var(--bg-secondary);border-radius:8px;text-align:center;border:1px solid var(--border-secondary);">'
-      + '<div style="font-size:24px;font-weight:700;color:var(--text-success);">' + c.ok24h + '</div>'
+      + '<div style="font-size:24px;font-weight:700;color:var(--text-success);">' + (c.ok24h || 0) + '</div>'
       + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">OK (24h)</div></div></div>';
-    if (c.failed && c.failed.length > 0) {
+    if (cFailed.length > 0) {
       chtml += '<div style="margin-top:8px;padding:10px 14px;background:var(--bg-error);border:1px solid rgba(220,38,38,0.2);border-radius:8px;font-size:12px;color:var(--text-error);">';
-      c.failed.forEach(function(f) { chtml += '<div>❌ ' + f + '</div>'; });
+      cFailed.forEach(function(f) { chtml += '<div>❌ ' + f + '</div>'; });
       chtml += '</div>';
     }
     document.getElementById('sh-crons').innerHTML = chtml;
 
     // Sub-agents
-    var sa = d.subagents;
+    var sa = subagents;
     var pctColor = sa.successPct >= 100 ? 'var(--text-success)' : (sa.successPct > 80 ? 'var(--text-warning)' : 'var(--text-error)');
     var sahtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
       + '<div style="flex:1;min-width:100px;padding:12px 16px;background:var(--bg-secondary);border-radius:8px;text-align:center;border:1px solid var(--border-secondary);">'
@@ -2723,7 +2833,14 @@ async function loadSystemHealth() {
       + '<div style="font-size:24px;font-weight:700;color:' + pctColor + ';">' + sa.successPct + '%</div>'
       + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Success</div></div></div>';
     document.getElementById('sh-subagents').innerHTML = sahtml;
-  } catch(e) { console.error('System health load failed', e); }
+  } catch(e) {
+    console.error('System health load failed', e);
+    var msg = '<div style="padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;font-size:12px;color:var(--text-muted);">Unable to load right now</div>';
+    document.getElementById('sh-services').innerHTML = msg;
+    document.getElementById('sh-disks').innerHTML = msg;
+    document.getElementById('sh-crons').innerHTML = msg;
+    document.getElementById('sh-subagents').innerHTML = msg;
+  }
 }
 loadSystemHealth();
 setInterval(loadSystemHealth, 30000);
@@ -3095,14 +3212,12 @@ function initFlow() {
   // Hide unconfigured channels in the flow SVG
   hideUnconfiguredChannels(document);
   
-  fetch('/api/overview').then(function(r){return r.json();}).then(function(d) {
-    var el = document.getElementById('brain-model-text');
-    if (el && d.model) el.textContent = d.model;
-    var label = document.getElementById('brain-model-label');
-    if (label && d.model) {
-      var short = d.model.split('/').pop().split('-').slice(0,2).join(' ');
-      label.textContent = short.charAt(0).toUpperCase() + short.slice(1);
+  fetch('/api/overview').then(function(r){return r.json();}).then(async function(d) {
+    if (!d.model || d.model === 'unknown') {
+      var fm = await resolvePrimaryModelFallback();
+      if (fm && fm !== 'unknown') d.model = fm;
     }
+    if (d.model) applyBrainModelToAll(d.model);
     var tok = document.getElementById('flow-tokens');
     if (tok) tok.textContent = (d.mainTokens / 1000).toFixed(0) + 'K';
     
@@ -3729,7 +3844,7 @@ var COMP_MAP = {
   'node-signal': {type:'channel', name:'Signal', icon:'💬'},
   'node-whatsapp': {type:'channel', name:'WhatsApp', icon:'📲'},
   'node-gateway': {type:'gateway', name:'Gateway', icon:'🌐'},
-  'node-brain': {type:'brain', name:'Claude', icon:'🧠'},
+  'node-brain': {type:'brain', name:'AI Model', icon:'🧠'},
   'node-session': {type:'tool', name:'Sessions', icon:'📋'},
   'node-exec': {type:'tool', name:'Exec', icon:'⚡'},
   'node-browser': {type:'tool', name:'Web', icon:'🌍'},
@@ -5084,6 +5199,32 @@ document.addEventListener('DOMContentLoaded', function() {
 
 # ── API Routes ──────────────────────────────────────────────────────────
 
+def _acquire_stream_slot(kind):
+    """Bound concurrent SSE clients per stream type."""
+    global _active_log_stream_clients, _active_health_stream_clients
+    with _stream_clients_lock:
+        if kind == 'log':
+            if _active_log_stream_clients >= MAX_LOG_STREAM_CLIENTS:
+                return False
+            _active_log_stream_clients += 1
+            return True
+        if kind == 'health':
+            if _active_health_stream_clients >= MAX_HEALTH_STREAM_CLIENTS:
+                return False
+            _active_health_stream_clients += 1
+            return True
+    return False
+
+
+def _release_stream_slot(kind):
+    global _active_log_stream_clients, _active_health_stream_clients
+    with _stream_clients_lock:
+        if kind == 'log':
+            _active_log_stream_clients = max(0, _active_log_stream_clients - 1)
+        elif kind == 'health':
+            _active_health_stream_clients = max(0, _active_health_stream_clients - 1)
+
+
 @app.route('/')
 def index():
     resp = make_response(render_template_string(DASHBOARD_HTML))
@@ -5194,7 +5335,7 @@ def api_channels():
 @app.route('/api/overview')
 def api_overview():
     sessions = _get_sessions()
-    main = next((s for s in sessions if s.get('key', '').endswith(':main')), {})
+    main = next((s for s in sessions if 'subagent' not in (s.get('sessionId', '').lower())), sessions[0] if sessions else {})
 
     crons = _get_crons()
     enabled = len([j for j in crons if j.get('enabled')])
@@ -5255,9 +5396,10 @@ def api_overview():
     except Exception:
         infra['storage'] = 'Disk'
 
+    model_name = main.get('model') or 'unknown'
     return jsonify({
-        'model': main.get('model', 'claude-opus-4-5') or 'claude-opus-4-5',
-        'provider': 'anthropic',
+        'model': model_name,
+        'provider': _infer_provider_from_model(model_name),
         'sessionCount': len(sessions),
         'mainSessionUpdated': main.get('updatedAt'),
         'mainTokens': main.get('totalTokens', 0),
@@ -5310,6 +5452,24 @@ def _find_log_file(ds):
             if os.path.exists(f):
                 return f
     return None
+
+
+def _infer_provider_from_model(model_name):
+    """Best-effort provider inference for display only."""
+    m = (model_name or '').lower()
+    if not m:
+        return 'unknown'
+    if 'claude' in m:
+        return 'anthropic'
+    if 'grok' in m or 'x-ai' in m or m.startswith('xai'):
+        return 'xai'
+    if 'gpt' in m or 'o1' in m or 'o3' in m or 'o4' in m:
+        return 'openai'
+    if 'gemini' in m:
+        return 'google'
+    if 'llama' in m or 'mistral' in m or 'qwen' in m or 'deepseek' in m:
+        return 'local/other'
+    return 'unknown'
 
 @app.route('/api/timeline')
 def api_timeline():
@@ -5390,12 +5550,17 @@ def api_logs():
 @app.route('/api/logs-stream')
 def api_logs_stream():
     """SSE endpoint — streams new log lines in real-time."""
+    if not _acquire_stream_slot('log'):
+        return jsonify({'error': 'Too many active log streams'}), 429
+
     today = datetime.now().strftime('%Y-%m-%d')
     log_file = _find_log_file(today)
 
     def generate():
+        started_at = time.time()
         if not log_file:
             yield 'data: {"line":"No log file found"}\n\n'
+            _release_stream_slot('log')
             return
         proc = subprocess.Popen(
             ['tail', '-f', '-n', '0', log_file],
@@ -5403,11 +5568,23 @@ def api_logs_stream():
         )
         try:
             while True:
+                if time.time() - started_at > SSE_MAX_SECONDS:
+                    yield 'event: done\ndata: {"reason":"max_duration_reached"}\n\n'
+                    break
+                ready, _, _ = select.select([proc.stdout], [], [], 1.0)
+                if not ready:
+                    continue
                 line = proc.stdout.readline()
                 if line:
                     yield f'data: {json.dumps({"line": line.rstrip()})}\n\n'
         except GeneratorExit:
-            proc.kill()
+            pass
+        finally:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            _release_stream_slot('log')
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -5621,6 +5798,8 @@ def _generate_cost_warnings(today_cost, week_cost, month_cost, trend_data):
 # ── Usage cache ─────────────────────────────────────────────────────────
 _usage_cache = {'data': None, 'ts': 0}
 _USAGE_CACHE_TTL = 60  # seconds
+_sessions_cache = {'data': None, 'ts': 0}
+_SESSIONS_CACHE_TTL = 10  # seconds
 
 # ── New Feature APIs ────────────────────────────────────────────────────
 
@@ -7457,16 +7636,26 @@ def api_health():
 @app.route('/api/health-stream')
 def api_health_stream():
     """SSE endpoint — auto-refresh health checks every 30 seconds."""
+    if not _acquire_stream_slot('health'):
+        return jsonify({'error': 'Too many active health streams'}), 429
+
     def generate():
-        while True:
-            try:
-                with app.test_request_context():
-                    resp = api_health()
-                    data = resp.get_json()
-                    yield f'data: {json.dumps(data)}\n\n'
-            except Exception:
-                yield f'data: {json.dumps({"checks": []})}\n\n'
-            time.sleep(30)
+        started_at = time.time()
+        try:
+            while True:
+                if time.time() - started_at > SSE_MAX_SECONDS:
+                    yield 'event: done\ndata: {"reason":"max_duration_reached"}\n\n'
+                    break
+                try:
+                    with app.test_request_context():
+                        resp = api_health()
+                        data = resp.get_json()
+                        yield f'data: {json.dumps(data)}\n\n'
+                except Exception:
+                    yield f'data: {json.dumps({"checks": []})}\n\n'
+                time.sleep(30)
+        finally:
+            _release_stream_slot('health')
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -7531,6 +7720,33 @@ def api_automation_analysis():
 
 def _get_sessions():
     """Read active sessions from the session directory."""
+    now = time.time()
+    if _sessions_cache['data'] is not None and (now - _sessions_cache['ts']) < _SESSIONS_CACHE_TTL:
+        return _sessions_cache['data']
+
+    def _read_session_model_fast(file_path):
+        """Best-effort model extraction from the first part of a session file."""
+        try:
+            with open(file_path, 'r') as f:
+                for i, line in enumerate(f):
+                    if i > 200:
+                        break
+                    try:
+                        obj = json.loads(line.strip())
+                    except Exception:
+                        continue
+                    if obj.get('type') != 'message':
+                        continue
+                    msg = obj.get('message', {})
+                    if not isinstance(msg, dict):
+                        continue
+                    model = msg.get('model')
+                    if model:
+                        return model
+        except Exception:
+            pass
+        return 'unknown'
+
     sessions = []
     try:
         base = SESSIONS_DIR or os.path.expanduser('~/.clawdbot/agents/main/sessions')
@@ -7554,7 +7770,7 @@ def _get_sessions():
                     'key': sid[:12] + '...',
                     'displayName': sid[:20],
                     'updatedAt': int(mtime * 1000),
-                    'model': 'claude-opus-4-5',
+                    'model': _read_session_model_fast(fpath),
                     'channel': 'unknown',
                     'totalTokens': size,
                     'contextTokens': 200000,
@@ -7563,6 +7779,8 @@ def _get_sessions():
                 pass
     except Exception:
         pass
+    _sessions_cache['data'] = sessions
+    _sessions_cache['ts'] = now
     return sessions
 
 
@@ -7585,12 +7803,15 @@ def _get_crons():
 def _get_memory_files():
     """List workspace memory files."""
     result = []
+    workspace = WORKSPACE or os.getcwd()
+    memory_dir = MEMORY_DIR or os.path.join(workspace, "memory")
+
     for name in ['MEMORY.md', 'SOUL.md', 'IDENTITY.md', 'USER.md', 'AGENTS.md', 'TOOLS.md', 'HEARTBEAT.md']:
-        path = os.path.join(WORKSPACE, name)
+        path = os.path.join(workspace, name)
         if os.path.exists(path):
             result.append({'path': name, 'size': os.path.getsize(path)})
-    if os.path.isdir(MEMORY_DIR):
-        pattern = os.path.join(MEMORY_DIR, '*.md')
+    if os.path.isdir(memory_dir):
+        pattern = os.path.join(memory_dir, '*.md')
         for f in sorted(glob.glob(pattern), reverse=True):
             name = 'memory/' + os.path.basename(f)
             result.append({'path': name, 'size': os.path.getsize(f)})
@@ -8021,14 +8242,20 @@ def main():
                "  OPENCLAW_LOG_DIR      Log directory (default: auto-detected)\n"
                "  OPENCLAW_METRICS_FILE Path to metrics persistence JSON file\n"
                "  OPENCLAW_USER         Your name in the Flow visualization\n"
+               "  OPENCLAW_SSE_MAX_SECONDS  Max duration for each SSE stream (default: 300)\n"
     )
     parser.add_argument('--port', '-p', type=int, default=8900, help='Port (default: 8900)')
-    parser.add_argument('--host', '-H', type=str, default='0.0.0.0', help='Host (default: 0.0.0.0)')
+    parser.add_argument('--host', '-H', type=str, default='127.0.0.1', help='Host (default: 127.0.0.1)')
     parser.add_argument('--workspace', '-w', type=str, help='Agent workspace directory')
     parser.add_argument('--log-dir', '-l', type=str, help='Log directory')
     parser.add_argument('--sessions-dir', '-s', type=str, help='Sessions directory (transcript .jsonl files)')
     parser.add_argument('--metrics-file', '-m', type=str, help='Path to metrics persistence JSON file')
     parser.add_argument('--name', '-n', type=str, help='Your name (shown in Flow tab)')
+    parser.add_argument('--debug', dest='debug', action='store_true', default=True, help='Enable debug mode with auto-reload (default: enabled)')
+    parser.add_argument('--no-debug', dest='debug', action='store_false', help='Disable debug mode and auto-reload')
+    parser.add_argument('--sse-max-seconds', type=int, default=None, help='Max seconds per SSE connection (default: 300)')
+    parser.add_argument('--max-log-stream-clients', type=int, default=10, help='Max concurrent /api/logs-stream clients')
+    parser.add_argument('--max-health-stream-clients', type=int, default=10, help='Max concurrent /api/health-stream clients')
     parser.add_argument('--version', '-v', action='version', version=f'openclaw-dashboard {__version__}')
 
     args = parser.parse_args()
@@ -8040,6 +8267,21 @@ def main():
         METRICS_FILE = os.path.expanduser(args.metrics_file)
     elif os.environ.get('OPENCLAW_METRICS_FILE'):
         METRICS_FILE = os.path.expanduser(os.environ['OPENCLAW_METRICS_FILE'])
+
+    # Stream limits
+    global SSE_MAX_SECONDS, MAX_LOG_STREAM_CLIENTS, MAX_HEALTH_STREAM_CLIENTS
+    sse_max = args.sse_max_seconds
+    if sse_max is None:
+        env_sse_max = os.environ.get('OPENCLAW_SSE_MAX_SECONDS', '').strip()
+        if env_sse_max:
+            try:
+                sse_max = int(env_sse_max)
+            except ValueError:
+                sse_max = None
+    if sse_max is not None and sse_max > 0:
+        SSE_MAX_SECONDS = sse_max
+    MAX_LOG_STREAM_CLIENTS = max(1, args.max_log_stream_clients)
+    MAX_HEALTH_STREAM_CLIENTS = max(1, args.max_health_stream_clients)
 
     # Load persisted metrics and start flush thread
     _load_metrics_from_disk()
@@ -8053,6 +8295,8 @@ def main():
     print(f"  Metrics:    {_metrics_file_path()}")
     print(f"  OTLP:       {'✅ Ready (opentelemetry-proto installed)' if _HAS_OTEL_PROTO else '❌ Not available (pip install openclaw-dashboard[otel])'}")
     print(f"  User:       {USER_NAME}")
+    print(f"  Mode:       {'🛠️  Dev (auto-reload ON)' if args.debug else '🚀 Prod (auto-reload OFF)'}")
+    print(f"  SSE Limits: {SSE_MAX_SECONDS}s max duration · logs {MAX_LOG_STREAM_CLIENTS} clients · health {MAX_HEALTH_STREAM_CLIENTS} clients")
     print()
 
     # Validate configuration and show warnings/tips for new users
@@ -8076,7 +8320,7 @@ def main():
         print(f"  → OTLP endpoint: http://{local_ip}:{args.port}/v1/metrics")
     print()
 
-    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+    app.run(host=args.host, port=args.port, debug=args.debug, use_reloader=args.debug, threaded=True)
 
 
 if __name__ == '__main__':
