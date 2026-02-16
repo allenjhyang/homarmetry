@@ -12,7 +12,7 @@ Usage:
     OPENCLAW_HOME=~/bot clawmetry
 
 https://github.com/vivekchand/openclaw-dashboard
-MIT License — Built by Vivek Chand
+MIT License
 """
 
 import os
@@ -39,12 +39,12 @@ except ImportError:
     metrics_service_pb2 = None
     trace_service_pb2 = None
 
-__version__ = "0.2.8"
+__version__ = "0.3.2"
 
 app = Flask(__name__)
 
 # ── Configuration (auto-detected, overridable via CLI/env) ──────────────
-MC_URL = os.environ.get("MC_URL", "http://localhost:3002")
+MC_URL = os.environ.get("MC_URL", "")  # Optional Mission Control URL, empty = disabled
 WORKSPACE = None
 MEMORY_DIR = None
 LOG_DIR = None
@@ -57,6 +57,7 @@ MAX_HEALTH_STREAM_CLIENTS = 10
 _stream_clients_lock = threading.Lock()
 _active_log_stream_clients = 0
 _active_health_stream_clients = 0
+EXTRA_SERVICES = []  # List of {'name': str, 'port': int} from --monitor-service flags
 
 # ── OTLP Metrics Store ─────────────────────────────────────────────────
 METRICS_FILE = None  # Set via CLI/env, defaults to {WORKSPACE}/.openclaw-dashboard-metrics.json
@@ -580,6 +581,54 @@ def _detect_workspace_from_config():
         except (FileNotFoundError, json.JSONDecodeError, KeyError):
             pass
     return None
+
+
+def _detect_gateway_port():
+    """Detect the OpenClaw gateway port from config files or environment."""
+    # Check environment variable first
+    env_port = os.environ.get('OPENCLAW_GATEWAY_PORT', '').strip()
+    if env_port:
+        try:
+            return int(env_port)
+        except ValueError:
+            pass
+    # Try reading from gateway config
+    config_paths = [
+        os.path.expanduser('~/.openclaw/gateway.yaml'),
+        os.path.expanduser('~/.openclaw/gateway.yml'),
+        os.path.expanduser('~/.clawdbot/gateway.yaml'),
+        os.path.expanduser('~/.clawdbot/gateway.yml'),
+    ]
+    for cp in config_paths:
+        try:
+            with open(cp) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('port:'):
+                        port_val = line.split(':', 1)[1].strip()
+                        return int(port_val)
+        except (FileNotFoundError, ValueError, IndexError):
+            pass
+    return 18789  # Default OpenClaw gateway port
+
+
+def _detect_disk_mounts():
+    """Detect mounted filesystems to monitor (root + any large data drives)."""
+    mounts = ['/']
+    try:
+        with open('/proc/mounts') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    mount_point = parts[1]
+                    fs_type = parts[2] if len(parts) > 2 else ''
+                    # Include additional data mounts (skip virtual/special filesystems)
+                    if (mount_point.startswith('/mnt/') or mount_point.startswith('/data')) and \
+                       fs_type not in ('tmpfs', 'devtmpfs', 'proc', 'sysfs', 'cgroup', 'cgroup2'):
+                        mounts.append(mount_point)
+    except (IOError, OSError):
+        pass
+    return mounts
 
 
 def get_public_ip():
@@ -5384,8 +5433,10 @@ def index():
 
 @app.route('/api/mc-tasks')
 def api_mc_tasks():
-    import requests as _req
+    if not MC_URL:
+        return jsonify({'available': False, 'tasks': []})
     try:
+        import requests as _req
         r = _req.get(f'{MC_URL}/api/tasks', timeout=3)
         data = r.json()
         data['available'] = True
@@ -7635,9 +7686,24 @@ def api_system_health():
     """Comprehensive system health for the Overview tab."""
     import shutil
 
-    # --- SERVICES ---
+    # --- SERVICES (auto-detect gateway + user-configured extras) ---
     services = []
-    for name, port in [('OpenClaw Gateway', 18789), ('Mission Control', 3002), ('Dhriti Dashboard', 8901)]:
+    # Always check OpenClaw Gateway (detect port from config or default 18789)
+    gw_port = _detect_gateway_port()
+    service_checks = [('OpenClaw Gateway', gw_port)]
+    # Add any user-configured extra services
+    for svc in EXTRA_SERVICES:
+        service_checks.append((svc['name'], svc['port']))
+    # Add Mission Control only if MC_URL is explicitly configured
+    if MC_URL:
+        try:
+            from urllib.parse import urlparse
+            mc_parsed = urlparse(MC_URL)
+            mc_port = mc_parsed.port or 3002
+            service_checks.append(('Mission Control', mc_port))
+        except Exception:
+            pass
+    for name, port in service_checks:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(2)
@@ -7649,7 +7715,7 @@ def api_system_health():
 
     # --- DISK USAGE ---
     disks = []
-    for mount in ['/', '/mnt/data-drive']:
+    for mount in _detect_disk_mounts():
         try:
             usage = shutil.disk_usage(mount)
             used_gb = usage.used / (1024**3)
@@ -7709,14 +7775,15 @@ def api_system_health():
 def api_health():
     """System health checks."""
     checks = []
-    # 1. Gateway — check if port 18789 is responding
+    # 1. Gateway — check if gateway port is responding
+    gw_port = _detect_gateway_port()
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(2)
-        result = s.connect_ex(('127.0.0.1', 18789))
+        result = s.connect_ex(('127.0.0.1', gw_port))
         s.close()
         if result == 0:
-            checks.append({'id': 'gateway', 'status': 'healthy', 'color': 'green', 'detail': 'Port 18789 responding'})
+            checks.append({'id': 'gateway', 'status': 'healthy', 'color': 'green', 'detail': f'Port {gw_port} responding'})
         else:
             # Fallback: check process
             gw = subprocess.run(['pgrep', '-f', 'moltbot'], capture_output=True, text=True)
@@ -8207,35 +8274,33 @@ def _analyze_work_patterns():
                     'target': error
                 })
         
-        # Check for Mission Control task patterns
-        try:
-            mc_response = subprocess.run(['curl', '-s', 'http://localhost:3002/api/tasks'], 
-                                       capture_output=True, text=True, timeout=5)
-            if mc_response.returncode == 0:
-                import json
-                mc_data = json.loads(mc_response.stdout)
-                if 'tasks' in mc_data:
-                    # Analyze task patterns
-                    task_types = {}
-                    for task in mc_data['tasks']:
-                        title = task.get('title', '').lower()
-                        for keyword in ['deploy', 'fix', 'update', 'build', 'test', 'backup']:
-                            if keyword in title:
-                                task_types[keyword] = task_types.get(keyword, 0) + 1
-                    
-                    for task_type, count in task_types.items():
-                        if count >= 3:
-                            patterns.append({
-                                'title': f'Frequent {task_type} tasks',
-                                'description': f'You have {count} tasks involving "{task_type}". This could be automated.',
-                                'frequency': f'{count} tasks',
-                                'confidence': 80,
-                                'priority': 'medium',
-                                'type': 'task',
-                                'target': task_type
-                            })
-        except:
-            pass
+        # Check for Mission Control task patterns (only if MC_URL is configured)
+        if MC_URL:
+            try:
+                mc_response = subprocess.run(['curl', '-s', f'{MC_URL}/api/tasks'],
+                                           capture_output=True, text=True, timeout=5)
+                if mc_response.returncode == 0:
+                    mc_data = json.loads(mc_response.stdout)
+                    if 'tasks' in mc_data:
+                        task_types = {}
+                        for task in mc_data['tasks']:
+                            title = task.get('title', '').lower()
+                            for keyword in ['deploy', 'fix', 'update', 'build', 'test', 'backup']:
+                                if keyword in title:
+                                    task_types[keyword] = task_types.get(keyword, 0) + 1
+                        for task_type, count in task_types.items():
+                            if count >= 3:
+                                patterns.append({
+                                    'title': f'Frequent {task_type} tasks',
+                                    'description': f'You have {count} tasks involving "{task_type}". This could be automated.',
+                                    'frequency': f'{count} tasks',
+                                    'confidence': 80,
+                                    'priority': 'medium',
+                                    'type': 'task',
+                                    'target': task_type
+                                })
+            except Exception:
+                pass
             
     except Exception as e:
         # Add a debug pattern if analysis fails
@@ -8413,10 +8478,31 @@ def main():
     parser.add_argument('--sse-max-seconds', type=int, default=None, help='Max seconds per SSE connection (default: 300)')
     parser.add_argument('--max-log-stream-clients', type=int, default=10, help='Max concurrent /api/logs-stream clients')
     parser.add_argument('--max-health-stream-clients', type=int, default=10, help='Max concurrent /api/health-stream clients')
+    parser.add_argument('--monitor-service', action='append', default=[], metavar='NAME:PORT',
+                        help='Additional service to monitor (e.g. "My App:8080"). Can be repeated.')
+    parser.add_argument('--mc-url', type=str, help='Mission Control URL (e.g. http://localhost:3002). Disabled by default.')
     parser.add_argument('--version', '-v', action='version', version=f'openclaw-dashboard {__version__}')
 
     args = parser.parse_args()
     detect_config(args)
+
+    # Parse --monitor-service flags
+    global EXTRA_SERVICES, MC_URL
+    for svc_spec in args.monitor_service:
+        if ':' in svc_spec:
+            name, port_str = svc_spec.rsplit(':', 1)
+            try:
+                EXTRA_SERVICES.append({'name': name.strip(), 'port': int(port_str.strip())})
+            except ValueError:
+                print(f"⚠️  Invalid --monitor-service format: {svc_spec} (expected NAME:PORT)")
+        else:
+            print(f"⚠️  Invalid --monitor-service format: {svc_spec} (expected NAME:PORT)")
+
+    # Mission Control URL
+    if args.mc_url:
+        MC_URL = args.mc_url
+    elif not MC_URL:
+        MC_URL = os.environ.get("MC_URL", "")
 
     # Metrics file config
     global METRICS_FILE
