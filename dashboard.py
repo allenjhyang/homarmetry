@@ -2283,19 +2283,18 @@ function clawmetryLogout(){
       </div>
 
       <!-- 🧠 Brain Panel: Main Agent Activity -->
-      <div id="main-activity-panel" style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-top:none;border-radius:0 0 0 8px;padding:14px 16px;max-height:220px;display:flex;flex-direction:column;overflow:hidden;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:14px;font-weight:700;color:var(--text-primary);">🧠 <span id="main-activity-model">Claude Opus</span></span>
-            <span id="main-activity-status" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg-tertiary);color:var(--text-muted);">
-              <span id="main-activity-dot" style="width:7px;height:7px;border-radius:50%;background:#888;display:inline-block;"></span>
+      <div id="main-activity-panel" style="background:linear-gradient(180deg, var(--bg-secondary) 0%, #12121a 100%);border:1px solid var(--border-primary);border-top:1px solid var(--border-secondary);padding:10px 14px 8px;min-height:60px;max-height:180px;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span id="main-activity-dot" style="width:8px;height:8px;border-radius:50%;background:#888;display:inline-block;"></span>
+            <span style="font-size:13px;font-weight:700;color:var(--text-primary);">🧠 <span id="main-activity-model">Claude Opus</span></span>
+            <span id="main-activity-status" style="font-size:10px;color:var(--text-muted);">
               <span id="main-activity-label">...</span>
             </span>
           </div>
-          <span style="font-size:10px;color:var(--text-faint);letter-spacing:0.5px;">⟳ 5s</span>
         </div>
-        <div id="main-activity-list" style="overflow-y:auto;flex:1;font-size:12px;font-family:'JetBrains Mono',monospace;">
-          <div style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">Loading...</div>
+        <div id="main-activity-list" style="overflow-y:auto;flex:1;font-size:11px;font-family:'JetBrains Mono','Fira Code',monospace;line-height:1.6;">
+          <div style="text-align:center;padding:8px;color:var(--text-muted);font-size:11px;">Waiting for activity...</div>
         </div>
       </div>
     </div>
@@ -4684,15 +4683,15 @@ async function loadMainActivity() {
       }
       var summary = (c.summary || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       if (summary.length > 60) summary = summary.substring(0, 57) + '...';
-      html += '<div style="display:flex;gap:6px;align-items:flex-start;padding:3px 0;border-bottom:1px solid var(--border-secondary);">';
+      html += '<div style="display:flex;gap:5px;align-items:center;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);">';
       var toolLabels = {exec:'Shell',Read:'Read',read:'Read',Edit:'Edit',edit:'Edit',Write:'Write',write:'Write',
-        web_search:'Search',web_fetch:'Fetch',browser:'Browser',message:'Message',tts:'TTS',process:'Process',
-        sessions_spawn:'Spawn',sessions_send:'Send',cron:'Cron',gateway:'Gateway',session_status:'Status',image:'Vision',canvas:'Canvas'};
+        web_search:'Search',web_fetch:'Fetch',browser:'Browser',message:'Msg',tts:'TTS',process:'Proc',
+        sessions_spawn:'Spawn',sessions_send:'Send',cron:'Cron',gateway:'GW',session_status:'Status',image:'Vision',canvas:'Canvas'};
       var toolLabel = toolLabels[c.name] || c.name;
-      html += '<span style="color:var(--text-faint);min-width:52px;font-size:10px;">' + ts + '</span>';
-      html += '<span style="min-width:18px;text-align:center;font-size:13px;">' + (c.icon||'⚙️') + '</span>';
-      html += '<span style="color:#9070d0;min-width:44px;font-size:10px;font-weight:600;">' + toolLabel + '</span>';
-      html += '<span style="color:var(--text-secondary);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;" title="' + summary + '">' + summary + '</span>';
+      html += '<span style="color:var(--text-faint);min-width:48px;font-size:10px;">' + ts + '</span>';
+      html += '<span style="font-size:12px;min-width:16px;text-align:center;">' + (c.icon||'⚙️') + '</span>';
+      html += '<span style="color:#8b6fc0;min-width:38px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;">' + toolLabel + '</span>';
+      html += '<span style="color:#c0c0c0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + summary + '">' + summary + '</span>';
       html += '</div>';
     }
     el.innerHTML = html;
