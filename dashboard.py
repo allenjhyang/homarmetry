@@ -3386,7 +3386,7 @@ async function loadActiveTasks() {
 
     // Fetch from both MC tasks and subagents in parallel
     var [mcData, saData] = await Promise.all([
-      fetch('/api/mc-tasks').then(r => r.json()).catch(function() { return {tasks:[]}; }),
+      fetch('/api/mc-tasks').then(r => r.json()).then(function(d) { return {tasks: (d.tasks||[]).filter(function(t){return t.column==='in_progress';})}; }).catch(function() { return {tasks:[]}; }),
       fetch('/api/subagents').then(r => r.json()).catch(function() { return {subagents:[]}; })
     ]);
 
@@ -10417,21 +10417,6 @@ def api_component_brain():
         'total': total,
     }
     return jsonify(result)
-
-
-@app.route('/api/mc-tasks')
-def api_mc_tasks():
-    """Proxy to Mission Control tasks API, filtered to in_progress."""
-    import urllib.request
-    import json as _json
-    try:
-        req = urllib.request.Request('http://localhost:3002/api/tasks', headers={'Accept': 'application/json'})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = _json.loads(resp.read().decode())
-        tasks = [t for t in (data.get('tasks') or []) if t.get('column') == 'in_progress']
-        return jsonify({'tasks': tasks})
-    except Exception as e:
-        return jsonify({'tasks': [], 'error': str(e)})
 
 
 @app.route('/api/heatmap')
