@@ -39,7 +39,7 @@ except ImportError:
     metrics_service_pb2 = None
     trace_service_pb2 = None
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 app = Flask(__name__)
 
@@ -65,6 +65,13 @@ EXTRA_SERVICES = []  # List of {'name': str, 'port': int} from --monitor-service
 FLEET_API_KEY = os.environ.get("CLAWMETRY_FLEET_KEY", "")
 FLEET_DB_PATH = None  # Set via CLI or auto-detected
 FLEET_NODE_TIMEOUT = 300  # seconds before node is considered offline
+
+# ── Budget & Alert Configuration ───────────────────────────────────────
+_budget_paused = False
+_budget_paused_at = 0
+_budget_paused_reason = ''
+_budget_alert_cooldowns = {}  # rule_id -> last_fired_timestamp
+_AGENT_DOWN_SECONDS = 300  # 5 min with no OTLP data = agent down alert
 
 # ── OTLP Metrics Store ─────────────────────────────────────────────────
 METRICS_FILE = None  # Set via CLI/env, defaults to {WORKSPACE}/.clawmetry-metrics.json
@@ -93,7 +100,7 @@ def _metrics_file_path():
 
 def _load_metrics_from_disk():
     """Load persisted metrics on startup."""
-    global metrics_store, _otel_last_received
+    global metrics_store, _otel_last_received, _budget_paused, _budget_paused_at, _budget_paused_reason
     path = _metrics_file_path()
     if not os.path.exists(path):
         return
@@ -105,6 +112,11 @@ def _load_metrics_from_disk():
                 if key in data and isinstance(data[key], list):
                     metrics_store[key] = data[key][-MAX_STORE_ENTRIES:]
             _otel_last_received = data.get('_last_received', 0)
+            # Restore auto-pause state from budget config
+            budget = data.get('budget', {})
+            if budget.get('auto_pause_triggered'):
+                _budget_paused = True
+                _budget_paused_reason = 'Restored from saved state'
         _expire_old_entries()
     except json.JSONDecodeError as e:
         print(f"⚠️  Warning: Failed to parse metrics file {path}: {e}")
@@ -167,6 +179,186 @@ def _add_metric(category, entry):
         if len(metrics_store[category]) > MAX_STORE_ENTRIES:
             metrics_store[category] = metrics_store[category][-MAX_STORE_ENTRIES:]
         _otel_last_received = time.time()
+    # Check budget on cost entries
+    if category == 'cost':
+        try:
+            _budget_check()
+        except Exception:
+            pass
+
+
+# ── Budget Controls & Spending Alerts ───────────────────────────────────
+
+_budget_lock = threading.Lock()
+
+_DEFAULT_BUDGET = {
+    'daily_limit_usd': 0.0,
+    'weekly_limit_usd': 0.0,
+    'monthly_limit_usd': 0.0,
+    'warn_at_pct': 80,
+    'auto_pause_enabled': False,
+    'auto_pause_triggered': False,
+    'telegram_bot_token': '',
+    'telegram_chat_id': '',
+    'telegram_enabled': False,
+    'alerts_sent': {},
+}
+
+
+def _get_budget_config():
+    """Get budget config from metrics file data. Returns a copy."""
+    path = _metrics_file_path()
+    try:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                data = json.load(f)
+            stored = data.get('budget', {})
+            cfg = dict(_DEFAULT_BUDGET)
+            cfg.update({k: v for k, v in stored.items() if k in _DEFAULT_BUDGET})
+            return cfg
+    except Exception:
+        pass
+    return dict(_DEFAULT_BUDGET)
+
+
+def _save_budget_config(cfg):
+    """Persist budget config into the metrics JSON file."""
+    path = _metrics_file_path()
+    try:
+        data = {}
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                data = json.load(f)
+        data['budget'] = cfg
+        tmp = path + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f"Warning: Failed to save budget config: {e}")
+
+
+def _get_period_costs():
+    """Compute accumulated cost for today, this week, this month."""
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    # Monday of this week
+    week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).timestamp()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+    daily = 0.0
+    weekly = 0.0
+    monthly = 0.0
+
+    with _metrics_lock:
+        for entry in metrics_store['cost']:
+            ts = entry.get('timestamp', 0)
+            usd = entry.get('usd', 0)
+            if ts >= month_start:
+                monthly += usd
+                if ts >= week_start:
+                    weekly += usd
+                    if ts >= today_start:
+                        daily += usd
+
+    return round(daily, 6), round(weekly, 6), round(monthly, 6)
+
+
+def _budget_check():
+    """Check budget limits and fire alerts/auto-pause as needed."""
+    global _budget_paused, _budget_paused_at, _budget_paused_reason
+
+    with _budget_lock:
+        cfg = _get_budget_config()
+
+    daily, weekly, monthly = _get_period_costs()
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    week_key = datetime.now().strftime('%Y-W%W')
+    month_key = datetime.now().strftime('%Y-%m')
+
+    alerts_sent = cfg.get('alerts_sent', {})
+    warn_pct = cfg.get('warn_at_pct', 80) / 100.0
+    changed = False
+    pause_reasons = []
+
+    checks = [
+        ('daily', cfg.get('daily_limit_usd', 0), daily, today_str),
+        ('weekly', cfg.get('weekly_limit_usd', 0), weekly, week_key),
+        ('monthly', cfg.get('monthly_limit_usd', 0), monthly, month_key),
+    ]
+
+    for period, limit, spent, period_key in checks:
+        if limit <= 0:
+            continue
+
+        warn_key = f'{period}_warning_{period_key}'
+        crit_key = f'{period}_critical_{period_key}'
+
+        # Critical (100%)
+        if spent >= limit and crit_key not in alerts_sent:
+            alerts_sent[crit_key] = time.time()
+            changed = True
+            msg = f'Budget EXCEEDED: {period} spend ${spent:.2f} >= limit ${limit:.2f}'
+            _send_budget_alert('critical', period, spent, limit, msg, cfg)
+            if cfg.get('auto_pause_enabled'):
+                pause_reasons.append(msg)
+
+        # Warning (warn_at_pct%)
+        elif spent >= limit * warn_pct and warn_key not in alerts_sent:
+            alerts_sent[warn_key] = time.time()
+            changed = True
+            pct_val = int(warn_pct * 100)
+            msg = f'Budget warning: {period} spend ${spent:.2f} ({pct_val}% of ${limit:.2f})'
+            _send_budget_alert('warning', period, spent, limit, msg, cfg)
+
+    if pause_reasons and not _budget_paused:
+        _budget_paused = True
+        _budget_paused_at = time.time()
+        _budget_paused_reason = pause_reasons[0]
+        cfg['auto_pause_triggered'] = True
+        changed = True
+
+    if changed:
+        cfg['alerts_sent'] = alerts_sent
+        with _budget_lock:
+            _save_budget_config(cfg)
+
+
+def _send_budget_alert(level, period, spent, limit, message, cfg):
+    """Send a budget alert via Telegram if configured."""
+    if not cfg.get('telegram_enabled'):
+        return
+    token = cfg.get('telegram_bot_token', '').strip()
+    chat_id = cfg.get('telegram_chat_id', '').strip()
+    if not token or not chat_id:
+        return
+
+    icon = '\U0001f6a8' if level == 'critical' else '\u26a0\ufe0f'
+    text = (
+        f'{icon} *ClawMetry Budget Alert*\n\n'
+        f'*Level:* {level.upper()}\n'
+        f'*Period:* {period}\n'
+        f'*Spent:* ${spent:.2f}\n'
+        f'*Limit:* ${limit:.2f}\n'
+        f'*Usage:* {(spent/limit*100):.0f}%\n'
+    )
+    if level == 'critical' and cfg.get('auto_pause_enabled'):
+        text += '\n*Auto-pause activated.* Agent OTLP intake is paused.'
+
+    try:
+        import urllib.request
+        url = f'https://api.telegram.org/bot{token}/sendMessage'
+        payload = json.dumps({
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'Markdown',
+        }).encode()
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        print(f"Warning: Telegram alert failed: {e}")
 
 
 def _metrics_flush_loop():
@@ -296,6 +488,433 @@ def _fleet_maintenance_loop():
 def _start_fleet_maintenance_thread():
     """Start the background fleet maintenance thread."""
     t = threading.Thread(target=_fleet_maintenance_loop, daemon=True)
+    t.start()
+
+
+# ── Budget & Alert Database ────────────────────────────────────────────
+
+def _budget_init_db():
+    """Initialize budget and alert tables in the fleet database."""
+    db = _fleet_db()
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS budget_config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS alert_rules (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            threshold REAL NOT NULL,
+            channels TEXT NOT NULL,
+            cooldown_min INTEGER DEFAULT 30,
+            enabled INTEGER DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS alert_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id TEXT,
+            type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            fired_at REAL NOT NULL,
+            acknowledged INTEGER DEFAULT 0,
+            ack_at REAL,
+            FOREIGN KEY (rule_id) REFERENCES alert_rules(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_alert_history_fired
+            ON alert_history(fired_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_alert_history_rule
+            ON alert_history(rule_id, fired_at DESC);
+    """)
+    db.close()
+
+
+def _get_budget_config():
+    """Get all budget config as a dict."""
+    defaults = {
+        'daily_limit': 0,
+        'weekly_limit': 0,
+        'monthly_limit': 0,
+        'auto_pause_enabled': False,
+        'auto_pause_threshold_pct': 100,
+        'warning_threshold_pct': 80,
+    }
+    try:
+        with _fleet_db_lock:
+            db = _fleet_db()
+            rows = db.execute("SELECT key, value FROM budget_config").fetchall()
+            db.close()
+        for row in rows:
+            k = row['key']
+            v = row['value']
+            if k in defaults:
+                if isinstance(defaults[k], bool):
+                    defaults[k] = v.lower() in ('true', '1', 'yes')
+                elif isinstance(defaults[k], (int, float)):
+                    try:
+                        defaults[k] = float(v)
+                    except ValueError:
+                        pass
+                else:
+                    defaults[k] = v
+    except Exception:
+        pass
+    return defaults
+
+
+def _set_budget_config(updates):
+    """Update budget config keys."""
+    now = time.time()
+    with _fleet_db_lock:
+        db = _fleet_db()
+        for k, v in updates.items():
+            db.execute(
+                "INSERT OR REPLACE INTO budget_config (key, value, updated_at) VALUES (?, ?, ?)",
+                (k, str(v), now)
+            )
+        db.commit()
+        db.close()
+
+
+def _get_budget_status():
+    """Calculate current spending vs budget limits."""
+    global _budget_paused, _budget_paused_at, _budget_paused_reason
+    config = _get_budget_config()
+    now = time.time()
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp()
+    month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+    daily_spent = 0.0
+    weekly_spent = 0.0
+    monthly_spent = 0.0
+
+    with _metrics_lock:
+        for entry in metrics_store['cost']:
+            ts = entry.get('timestamp', 0)
+            usd = entry.get('usd', 0)
+            if ts >= month_start:
+                monthly_spent += usd
+                if ts >= week_start:
+                    weekly_spent += usd
+                    if ts >= today_start:
+                        daily_spent += usd
+
+    daily_limit = config['daily_limit']
+    weekly_limit = config['weekly_limit']
+    monthly_limit = config['monthly_limit']
+
+    return {
+        'daily_spent': round(daily_spent, 4),
+        'weekly_spent': round(weekly_spent, 4),
+        'monthly_spent': round(monthly_spent, 4),
+        'daily_limit': daily_limit,
+        'weekly_limit': weekly_limit,
+        'monthly_limit': monthly_limit,
+        'daily_pct': round((daily_spent / daily_limit * 100) if daily_limit > 0 else 0, 1),
+        'weekly_pct': round((weekly_spent / weekly_limit * 100) if weekly_limit > 0 else 0, 1),
+        'monthly_pct': round((monthly_spent / monthly_limit * 100) if monthly_limit > 0 else 0, 1),
+        'paused': _budget_paused,
+        'paused_at': _budget_paused_at,
+        'paused_reason': _budget_paused_reason,
+        'auto_pause_enabled': config['auto_pause_enabled'],
+        'warning_threshold_pct': config['warning_threshold_pct'],
+    }
+
+
+def _budget_check():
+    """Check budget limits and fire alerts/auto-pause if needed."""
+    global _budget_paused, _budget_paused_at, _budget_paused_reason
+    if _budget_paused:
+        return
+    config = _get_budget_config()
+    status = _get_budget_status()
+    warning_pct = config['warning_threshold_pct']
+    pause_pct = config['auto_pause_threshold_pct']
+
+    # Check each period
+    for period in ['daily', 'weekly', 'monthly']:
+        limit = config[f'{period}_limit']
+        if limit <= 0:
+            continue
+        spent = status[f'{period}_spent']
+        pct = (spent / limit * 100) if limit > 0 else 0
+
+        # Warning alert
+        if pct >= warning_pct and pct < pause_pct:
+            _fire_alert(
+                rule_id=f'budget_{period}_warning',
+                alert_type='threshold',
+                message=f'Budget warning: {period} spending ${spent:.2f} is {pct:.0f}% of ${limit:.2f} limit',
+                channels=['banner', 'telegram'],
+            )
+
+        # Auto-pause
+        if pct >= pause_pct and config['auto_pause_enabled']:
+            _budget_paused = True
+            _budget_paused_at = time.time()
+            _budget_paused_reason = f'{period.capitalize()} budget exceeded: ${spent:.2f} / ${limit:.2f}'
+            _fire_alert(
+                rule_id=f'budget_{period}_exceeded',
+                alert_type='threshold',
+                message=f'BUDGET EXCEEDED: {period} spending ${spent:.2f} exceeds ${limit:.2f} limit. Gateway paused.',
+                channels=['banner', 'telegram'],
+            )
+            _pause_gateway()
+            return
+
+
+def _pause_gateway():
+    """Attempt to pause the OpenClaw gateway."""
+    # Try gateway stop command
+    try:
+        subprocess.run(['openclaw', 'gateway', 'stop'], timeout=10,
+                       capture_output=True)
+        return
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        pass
+    # Fallback: SIGSTOP to gateway process
+    try:
+        result = subprocess.run(['pgrep', '-f', 'openclaw-gatewa'],
+                                capture_output=True, text=True, timeout=3)
+        for pid in result.stdout.strip().split('\n'):
+            pid = pid.strip()
+            if pid:
+                os.kill(int(pid), 19)  # SIGSTOP
+                return
+    except Exception:
+        pass
+
+
+def _resume_gateway():
+    """Resume the OpenClaw gateway after budget pause."""
+    global _budget_paused, _budget_paused_at, _budget_paused_reason
+    # Try gateway start command
+    try:
+        subprocess.run(['openclaw', 'gateway', 'start'], timeout=10,
+                       capture_output=True)
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        pass
+    # Also try SIGCONT
+    try:
+        result = subprocess.run(['pgrep', '-f', 'openclaw-gatewa'],
+                                capture_output=True, text=True, timeout=3)
+        for pid in result.stdout.strip().split('\n'):
+            pid = pid.strip()
+            if pid:
+                os.kill(int(pid), 18)  # SIGCONT
+    except Exception:
+        pass
+    _budget_paused = False
+    _budget_paused_at = 0
+    _budget_paused_reason = ''
+
+
+def _fire_alert(rule_id, alert_type, message, channels=None):
+    """Fire an alert with cooldown check."""
+    global _budget_alert_cooldowns
+    now = time.time()
+
+    # Check cooldown (default 30 min for budget alerts)
+    cooldown_sec = 1800
+    last_fired = _budget_alert_cooldowns.get(rule_id, 0)
+    if now - last_fired < cooldown_sec:
+        return
+
+    _budget_alert_cooldowns[rule_id] = now
+
+    # Save to alert history
+    if channels is None:
+        channels = ['banner']
+    try:
+        with _fleet_db_lock:
+            db = _fleet_db()
+            for ch in channels:
+                db.execute(
+                    "INSERT INTO alert_history (rule_id, type, message, channel, fired_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (rule_id, alert_type, message, ch, now)
+                )
+            db.commit()
+            db.close()
+    except Exception as e:
+        print(f"Warning: Failed to save alert history: {e}")
+
+    # Send to channels
+    for ch in channels:
+        if ch == 'telegram':
+            _send_telegram_alert(message)
+        elif ch == 'webhook':
+            pass  # webhook sending handled by custom alert rules
+
+
+def _send_telegram_alert(message):
+    """Send alert via Telegram through the gateway."""
+    try:
+        _gw_invoke('message', {
+            'action': 'send',
+            'message': f'[ClawMetry Alert] {message}',
+        })
+    except Exception:
+        pass
+
+
+def _send_webhook_alert(url, alert_data):
+    """Send alert to a webhook URL."""
+    try:
+        import urllib.request as _ur
+        payload = json.dumps(alert_data).encode()
+        req = _ur.Request(url, data=payload, headers={'Content-Type': 'application/json'}, method='POST')
+        _ur.urlopen(req, timeout=10)
+    except Exception:
+        pass
+
+
+def _get_alert_rules():
+    """Get all alert rules."""
+    try:
+        with _fleet_db_lock:
+            db = _fleet_db()
+            rows = db.execute("SELECT * FROM alert_rules ORDER BY created_at DESC").fetchall()
+            db.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _get_alert_history(limit=50):
+    """Get recent alert history."""
+    try:
+        with _fleet_db_lock:
+            db = _fleet_db()
+            rows = db.execute(
+                "SELECT * FROM alert_history ORDER BY fired_at DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            db.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _get_active_alerts():
+    """Get unacknowledged alerts from last 24h."""
+    cutoff = time.time() - 86400
+    try:
+        with _fleet_db_lock:
+            db = _fleet_db()
+            rows = db.execute(
+                "SELECT * FROM alert_history WHERE acknowledged = 0 AND fired_at > ? "
+                "ORDER BY fired_at DESC LIMIT 20",
+                (cutoff,)
+            ).fetchall()
+            db.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _budget_monitor_loop():
+    """Background thread: check for anomalies, agent-down, and custom alert rules."""
+    global _budget_alert_cooldowns
+    while True:
+        time.sleep(60)
+        try:
+            now = time.time()
+
+            # Agent-down check
+            if _otel_last_received > 0 and (now - _otel_last_received) > _AGENT_DOWN_SECONDS:
+                _fire_alert(
+                    rule_id='agent_down',
+                    alert_type='agent_down',
+                    message=f'Agent appears down: no OTLP data for {int((now - _otel_last_received) / 60)} minutes',
+                    channels=['banner', 'telegram'],
+                )
+
+            # Anomaly check: today's cost > 2x 7-day average
+            status = _get_budget_status()
+            daily_spent = status['daily_spent']
+            if daily_spent > 0:
+                week_avg = status['weekly_spent'] / 7 if status['weekly_spent'] > 0 else 0
+                if week_avg > 0 and daily_spent > week_avg * 2:
+                    _fire_alert(
+                        rule_id='anomaly_daily',
+                        alert_type='anomaly',
+                        message=f'Spending anomaly: today ${daily_spent:.2f} is {(daily_spent/week_avg):.1f}x the 7-day average (${week_avg:.2f}/day)',
+                        channels=['banner', 'telegram'],
+                    )
+
+            # Custom alert rules
+            rules = _get_alert_rules()
+            for rule in rules:
+                if not rule.get('enabled'):
+                    continue
+                rule_id = rule['id']
+                rtype = rule['type']
+                threshold = rule['threshold']
+                channels = json.loads(rule.get('channels', '["banner"]'))
+                cooldown = rule.get('cooldown_min', 30) * 60
+
+                last_fired = _budget_alert_cooldowns.get(rule_id, 0)
+                if now - last_fired < cooldown:
+                    continue
+
+                fired = False
+                msg = ''
+
+                if rtype == 'threshold':
+                    if status['daily_spent'] >= threshold:
+                        msg = f'Daily spending ${status["daily_spent"]:.2f} exceeded threshold ${threshold:.2f}'
+                        fired = True
+                elif rtype == 'spike':
+                    # Spike: cost in last hour > threshold x average hourly rate
+                    hour_ago = now - 3600
+                    hour_cost = 0
+                    with _metrics_lock:
+                        for e in metrics_store['cost']:
+                            if e.get('timestamp', 0) >= hour_ago:
+                                hour_cost += e.get('usd', 0)
+                    avg_hourly = status['daily_spent'] / max(1, (now - datetime.now().replace(
+                        hour=0, minute=0, second=0, microsecond=0).timestamp()) / 3600)
+                    if avg_hourly > 0 and hour_cost > avg_hourly * threshold:
+                        msg = f'Spending spike: ${hour_cost:.2f} in last hour ({(hour_cost/avg_hourly):.1f}x average)'
+                        fired = True
+
+                if fired:
+                    _budget_alert_cooldowns[rule_id] = now
+                    try:
+                        with _fleet_db_lock:
+                            db = _fleet_db()
+                            for ch in channels:
+                                db.execute(
+                                    "INSERT INTO alert_history (rule_id, type, message, channel, fired_at) "
+                                    "VALUES (?, ?, ?, ?, ?)",
+                                    (rule_id, rtype, msg, ch, now)
+                                )
+                            db.commit()
+                            db.close()
+                    except Exception:
+                        pass
+                    for ch in channels:
+                        if ch == 'telegram':
+                            _send_telegram_alert(msg)
+                        elif ch == 'webhook':
+                            webhook_url = rule.get('webhook_url', '')
+                            if webhook_url:
+                                _send_webhook_alert(webhook_url, {
+                                    'type': rtype, 'message': msg, 'timestamp': now
+                                })
+
+        except Exception as e:
+            print(f"Warning: Budget monitor error: {e}")
+
+
+def _start_budget_monitor_thread():
+    """Start the background budget monitor thread."""
+    t = threading.Thread(target=_budget_monitor_loop, daemon=True)
     t.start()
 
 
@@ -1639,6 +2258,7 @@ function clawmetryLogout(){
 <div class="nav">
   <h1><span>🦞</span> ClawMetry</h1>
   <div class="theme-toggle" onclick="var o=document.getElementById('gw-setup-overlay');o.dataset.mandatory='false';document.getElementById('gw-setup-close').style.display='';o.style.display='flex'" title="Gateway settings" style="cursor:pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+  <div class="theme-toggle" onclick="openBudgetModal()" title="Budget & Alerts" style="cursor:pointer;">&#128176;</div>
   <div class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle theme"><svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
   <div class="theme-toggle" id="logout-btn" onclick="clawmetryLogout()" title="Logout" style="display:none;cursor:pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
   <div class="zoom-controls">
@@ -1651,6 +2271,88 @@ function clawmetryLogout(){
     <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
     <div class="nav-tab" onclick="switchTab('crons')">Crons</div>
     <div class="nav-tab" onclick="switchTab('memory')">Memory</div>
+  </div>
+</div>
+
+<!-- Alert Banner -->
+<div id="alert-banner" style="display:none;padding:10px 16px;background:var(--bg-error);border-bottom:2px solid var(--text-error);color:var(--text-error);font-size:13px;font-weight:600;display:none;align-items:center;gap:10px;">
+  <span style="font-size:18px;">&#9888;&#65039;</span>
+  <span id="alert-banner-msg" style="flex:1;"></span>
+  <button onclick="ackAllAlerts()" style="background:var(--text-error);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-weight:600;">Dismiss</button>
+  <button id="alert-resume-btn" onclick="resumeGateway()" style="display:none;background:#16a34a;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;font-weight:600;">Resume Gateway</button>
+</div>
+
+<!-- Budget Settings Modal -->
+<div id="budget-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
+  <div style="background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:16px;width:90%;max-width:560px;padding:24px;box-shadow:0 25px 50px rgba(0,0,0,0.25);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h3 style="font-size:18px;font-weight:700;color:var(--text-primary);">&#128176; Budget & Alerts</h3>
+      <button onclick="document.getElementById('budget-modal').style.display='none'" style="background:var(--button-bg);border:1px solid var(--border-primary);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;color:var(--text-tertiary);">&times;</button>
+    </div>
+    <div id="budget-modal-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--border-primary);margin-bottom:16px;">
+      <div class="modal-tab active" onclick="switchBudgetTab('limits',this)">Budget Limits</div>
+      <div class="modal-tab" onclick="switchBudgetTab('alerts',this)">Alert Rules</div>
+      <div class="modal-tab" onclick="switchBudgetTab('history',this)">History</div>
+    </div>
+    <!-- Budget Limits Tab -->
+    <div id="budget-tab-limits">
+      <div style="display:grid;gap:12px;">
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Daily Limit (USD, 0 = no limit)</label>
+          <input id="budget-daily" type="number" step="0.01" min="0" style="width:100%;padding:8px 12px;border:1px solid var(--border-primary);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Weekly Limit (USD)</label>
+          <input id="budget-weekly" type="number" step="0.01" min="0" style="width:100%;padding:8px 12px;border:1px solid var(--border-primary);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Monthly Limit (USD)</label>
+          <input id="budget-monthly" type="number" step="0.01" min="0" style="width:100%;padding:8px 12px;border:1px solid var(--border-primary);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Warning at (%)</label>
+          <input id="budget-warn-pct" type="number" step="1" min="1" max="100" value="80" style="width:100%;padding:8px 12px;border:1px solid var(--border-primary);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input id="budget-autopause" type="checkbox" style="cursor:pointer;">
+          <label for="budget-autopause" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">Auto-pause gateway when budget exceeded</label>
+        </div>
+        <button onclick="saveBudgetConfig()" style="background:var(--bg-accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;">Save Budget Settings</button>
+      </div>
+      <div id="budget-status-display" style="margin-top:16px;padding:12px;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:8px;">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Current Spending</div>
+        <div id="budget-status-content" style="font-size:13px;color:var(--text-secondary);">Loading...</div>
+      </div>
+    </div>
+    <!-- Alert Rules Tab -->
+    <div id="budget-tab-alerts" style="display:none;">
+      <div style="margin-bottom:12px;">
+        <button onclick="showAddAlertForm()" style="background:var(--bg-accent);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;">+ Add Alert Rule</button>
+      </div>
+      <div id="add-alert-form" style="display:none;padding:12px;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:8px;margin-bottom:12px;">
+        <div style="display:grid;gap:8px;">
+          <select id="alert-type" style="padding:8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);">
+            <option value="threshold">Threshold (daily $ amount)</option>
+            <option value="spike">Spike (hourly rate multiplier)</option>
+          </select>
+          <input id="alert-threshold" type="number" step="0.01" min="0" placeholder="Threshold value" style="padding:8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="alert-ch-banner" checked> Banner</label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="alert-ch-telegram"> Telegram</label>
+          </div>
+          <input id="alert-cooldown" type="number" value="30" min="1" placeholder="Cooldown (min)" style="padding:8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);">
+          <div style="display:flex;gap:8px;">
+            <button onclick="createAlertRule()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:13px;cursor:pointer;">Create</button>
+            <button onclick="document.getElementById('add-alert-form').style.display='none'" style="background:var(--button-bg);color:var(--text-secondary);border:none;border-radius:6px;padding:6px 16px;font-size:13px;cursor:pointer;">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div id="alert-rules-list" style="font-size:13px;color:var(--text-secondary);">Loading...</div>
+    </div>
+    <!-- History Tab -->
+    <div id="budget-tab-history" style="display:none;">
+      <div id="alert-history-list" style="font-size:13px;color:var(--text-secondary);max-height:400px;overflow-y:auto;">Loading...</div>
+    </div>
   </div>
 </div>
 
@@ -2058,6 +2760,186 @@ function clawmetryLogout(){
 </div>
 
 <script>
+// === Budget & Alert Functions ===
+function openBudgetModal() {
+  document.getElementById('budget-modal').style.display = 'flex';
+  loadBudgetConfig();
+  loadBudgetStatus();
+}
+
+function switchBudgetTab(tab, el) {
+  document.querySelectorAll('#budget-modal-tabs .modal-tab').forEach(function(t){t.classList.remove('active');});
+  if(el) el.classList.add('active');
+  ['limits','alerts','history'].forEach(function(t){
+    var d = document.getElementById('budget-tab-'+t);
+    if(d) d.style.display = t===tab ? 'block' : 'none';
+  });
+  if(tab==='alerts') loadAlertRules();
+  if(tab==='history') loadAlertHistory();
+}
+
+async function loadBudgetConfig() {
+  try {
+    var cfg = await fetch('/api/budget/config').then(function(r){return r.json();});
+    document.getElementById('budget-daily').value = cfg.daily_limit || 0;
+    document.getElementById('budget-weekly').value = cfg.weekly_limit || 0;
+    document.getElementById('budget-monthly').value = cfg.monthly_limit || 0;
+    document.getElementById('budget-warn-pct').value = cfg.warning_threshold_pct || 80;
+    document.getElementById('budget-autopause').checked = cfg.auto_pause_enabled || false;
+  } catch(e) {}
+}
+
+async function loadBudgetStatus() {
+  try {
+    var s = await fetch('/api/budget/status').then(function(r){return r.json();});
+    var html = '';
+    function row(label, spent, limit, pct) {
+      var color = pct > 90 ? 'var(--text-error)' : pct > 70 ? 'var(--text-warning)' : 'var(--text-success)';
+      html += '<div style="display:flex;justify-content:space-between;padding:4px 0;">';
+      html += '<span>' + label + '</span>';
+      html += '<span style="font-weight:600;color:' + color + ';">$' + spent.toFixed(2);
+      if(limit > 0) html += ' / $' + limit.toFixed(2) + ' (' + pct.toFixed(0) + '%)';
+      html += '</span></div>';
+    }
+    row('Today', s.daily_spent, s.daily_limit, s.daily_pct);
+    row('This Week', s.weekly_spent, s.weekly_limit, s.weekly_pct);
+    row('This Month', s.monthly_spent, s.monthly_limit, s.monthly_pct);
+    if(s.paused) {
+      html += '<div style="margin-top:8px;padding:8px;background:var(--bg-error);border-radius:6px;color:var(--text-error);font-weight:600;">&#9888;&#65039; Gateway PAUSED: ' + escHtml(s.paused_reason) + '</div>';
+    }
+    document.getElementById('budget-status-content').innerHTML = html;
+  } catch(e) {
+    document.getElementById('budget-status-content').textContent = 'Failed to load';
+  }
+}
+
+async function saveBudgetConfig() {
+  var data = {
+    daily_limit: parseFloat(document.getElementById('budget-daily').value) || 0,
+    weekly_limit: parseFloat(document.getElementById('budget-weekly').value) || 0,
+    monthly_limit: parseFloat(document.getElementById('budget-monthly').value) || 0,
+    warning_threshold_pct: parseInt(document.getElementById('budget-warn-pct').value) || 80,
+    auto_pause_enabled: document.getElementById('budget-autopause').checked,
+  };
+  await fetch('/api/budget/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  loadBudgetStatus();
+}
+
+async function resumeGateway() {
+  await fetch('/api/budget/resume', {method:'POST'});
+  document.getElementById('alert-banner').style.display = 'none';
+  document.getElementById('alert-resume-btn').style.display = 'none';
+  loadBudgetStatus();
+}
+
+function showAddAlertForm() {
+  document.getElementById('add-alert-form').style.display = 'block';
+}
+
+async function createAlertRule() {
+  var channels = [];
+  if(document.getElementById('alert-ch-banner').checked) channels.push('banner');
+  if(document.getElementById('alert-ch-telegram').checked) channels.push('telegram');
+  var data = {
+    type: document.getElementById('alert-type').value,
+    threshold: parseFloat(document.getElementById('alert-threshold').value) || 0,
+    channels: channels,
+    cooldown_min: parseInt(document.getElementById('alert-cooldown').value) || 30,
+  };
+  await fetch('/api/alerts/rules', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  document.getElementById('add-alert-form').style.display = 'none';
+  loadAlertRules();
+}
+
+async function loadAlertRules() {
+  try {
+    var data = await fetch('/api/alerts/rules').then(function(r){return r.json();});
+    var rules = data.rules || [];
+    if(rules.length === 0) {
+      document.getElementById('alert-rules-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No alert rules configured</div>';
+      return;
+    }
+    var html = '';
+    rules.forEach(function(r) {
+      var channels = [];
+      try { channels = JSON.parse(r.channels); } catch(e) { channels = [r.channels]; }
+      html += '<div style="padding:10px;border-bottom:1px solid var(--border-secondary);display:flex;align-items:center;gap:8px;">';
+      html += '<span style="font-weight:600;">' + escHtml(r.type) + '</span>';
+      html += '<span style="color:var(--text-accent);">' + (r.type==='spike' ? r.threshold+'x' : '$'+r.threshold) + '</span>';
+      html += '<span style="color:var(--text-muted);font-size:11px;">' + channels.join(', ') + '</span>';
+      html += '<span style="color:var(--text-muted);font-size:11px;">' + r.cooldown_min + 'min cooldown</span>';
+      html += '<span style="margin-left:auto;cursor:pointer;color:var(--text-error);font-size:16px;" onclick="deleteAlertRule(\''+r.id+'\')" title="Delete">&#x1f5d1;</span>';
+      html += '</div>';
+    });
+    document.getElementById('alert-rules-list').innerHTML = html;
+  } catch(e) {
+    document.getElementById('alert-rules-list').textContent = 'Failed to load';
+  }
+}
+
+async function deleteAlertRule(id) {
+  await fetch('/api/alerts/rules/'+id, {method:'DELETE'});
+  loadAlertRules();
+}
+
+async function loadAlertHistory() {
+  try {
+    var data = await fetch('/api/alerts/history?limit=50').then(function(r){return r.json();});
+    var alerts = data.alerts || [];
+    if(alerts.length === 0) {
+      document.getElementById('alert-history-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No alerts fired yet</div>';
+      return;
+    }
+    var html = '';
+    alerts.forEach(function(a) {
+      var ts = new Date(a.fired_at * 1000).toLocaleString();
+      var ack = a.acknowledged ? '<span style="color:var(--text-success);">&#10003;</span>' : '<span style="color:var(--text-warning);">&#x25cf;</span>';
+      html += '<div style="padding:8px;border-bottom:1px solid var(--border-secondary);font-size:12px;">';
+      html += ack + ' <span style="color:var(--text-muted);">' + ts + '</span> ';
+      html += '<span style="font-weight:600;">[' + escHtml(a.type) + ']</span> ';
+      html += escHtml(a.message);
+      html += '</div>';
+    });
+    document.getElementById('alert-history-list').innerHTML = html;
+  } catch(e) {
+    document.getElementById('alert-history-list').textContent = 'Failed to load';
+  }
+}
+
+async function checkActiveAlerts() {
+  try {
+    var data = await fetch('/api/alerts/active').then(function(r){return r.json();});
+    var alerts = data.alerts || [];
+    var banner = document.getElementById('alert-banner');
+    if(alerts.length === 0) {
+      banner.style.display = 'none';
+      return;
+    }
+    // Show most recent alert
+    var latest = alerts[0];
+    document.getElementById('alert-banner-msg').textContent = latest.message;
+    banner.style.display = 'flex';
+    // Show resume button if gateway is paused
+    var status = await fetch('/api/budget/status').then(function(r){return r.json();});
+    document.getElementById('alert-resume-btn').style.display = status.paused ? '' : 'none';
+  } catch(e) {}
+}
+
+async function ackAllAlerts() {
+  try {
+    var data = await fetch('/api/alerts/active').then(function(r){return r.json();});
+    var alerts = data.alerts || [];
+    for(var i=0; i<alerts.length; i++) {
+      await fetch('/api/alerts/history/'+alerts[i].id+'/ack', {method:'POST'});
+    }
+    document.getElementById('alert-banner').style.display = 'none';
+  } catch(e) {}
+}
+
+// Check alerts every 30s
+setInterval(checkActiveAlerts, 30000);
+setTimeout(checkActiveAlerts, 3000);
+
 function switchTab(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -2819,7 +3701,10 @@ async function loadSAActivity(sessionId) {
 
 function openDetailView(type) {
   // Navigate to the appropriate tab with detail view
-  if (type === 'cost' || type === 'tokens') {
+  if (type === 'cost') {
+    openBudgetModal();
+    return;
+  } else if (type === 'tokens') {
     switchTab('usage');
   } else if (type === 'sessions') {
     switchTab('sessions');
@@ -6691,6 +7576,8 @@ def api_view_file():
 @app.route('/v1/metrics', methods=['POST'])
 def otlp_metrics():
     """OTLP/HTTP receiver for metrics (protobuf)."""
+    if _budget_paused:
+        return jsonify({'error': 'Budget limit exceeded - intake paused', 'paused': True}), 429
     if not _HAS_OTEL_PROTO:
         return jsonify({
             'error': 'opentelemetry-proto not installed',
@@ -6709,6 +7596,8 @@ def otlp_metrics():
 @app.route('/v1/traces', methods=['POST'])
 def otlp_traces():
     """OTLP/HTTP receiver for traces (protobuf)."""
+    if _budget_paused:
+        return jsonify({'error': 'Budget limit exceeded - intake paused', 'paused': True}), 429
     if not _HAS_OTEL_PROTO:
         return jsonify({
             'error': 'opentelemetry-proto not installed',
@@ -6737,6 +7626,112 @@ def api_otel_status():
         'lastReceived': _otel_last_received,
         'counts': counts,
     })
+
+
+# ── Budget API Routes ────────────────────────────────────────────────────
+
+@app.route('/api/budget', methods=['GET'])
+def api_budget_get():
+    """Return budget config and current spending."""
+    cfg = _get_budget_config()
+    daily, weekly, monthly = _get_period_costs()
+    # Redact telegram token for display (show last 4 chars)
+    token_display = ''
+    raw_token = cfg.get('telegram_bot_token', '')
+    if raw_token:
+        token_display = '****' + raw_token[-4:] if len(raw_token) > 4 else '****'
+    return jsonify({
+        'config': {
+            'daily_limit_usd': cfg['daily_limit_usd'],
+            'weekly_limit_usd': cfg['weekly_limit_usd'],
+            'monthly_limit_usd': cfg['monthly_limit_usd'],
+            'warn_at_pct': cfg['warn_at_pct'],
+            'auto_pause_enabled': cfg['auto_pause_enabled'],
+            'auto_pause_triggered': cfg.get('auto_pause_triggered', False),
+            'telegram_enabled': cfg['telegram_enabled'],
+            'telegram_chat_id': cfg.get('telegram_chat_id', ''),
+            'telegram_token_set': bool(raw_token),
+            'telegram_token_display': token_display,
+        },
+        'spending': {
+            'daily': round(daily, 4),
+            'weekly': round(weekly, 4),
+            'monthly': round(monthly, 4),
+        },
+        'paused': _budget_paused,
+        'paused_at': _budget_paused_at,
+        'paused_reason': _budget_paused_reason,
+    })
+
+
+@app.route('/api/budget', methods=['POST'])
+def api_budget_post():
+    """Update budget settings."""
+    body = request.get_json(force=True, silent=True) or {}
+    with _budget_lock:
+        cfg = _get_budget_config()
+        allowed = [
+            'daily_limit_usd', 'weekly_limit_usd', 'monthly_limit_usd',
+            'warn_at_pct', 'auto_pause_enabled',
+            'telegram_bot_token', 'telegram_chat_id', 'telegram_enabled',
+        ]
+        for key in allowed:
+            if key in body:
+                cfg[key] = body[key]
+        # Validate numeric fields
+        for nk in ('daily_limit_usd', 'weekly_limit_usd', 'monthly_limit_usd'):
+            try:
+                cfg[nk] = max(0.0, float(cfg[nk]))
+            except (TypeError, ValueError):
+                cfg[nk] = 0.0
+        try:
+            cfg['warn_at_pct'] = max(1, min(99, int(cfg['warn_at_pct'])))
+        except (TypeError, ValueError):
+            cfg['warn_at_pct'] = 80
+        _save_budget_config(cfg)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/budget/reset-pause', methods=['POST'])
+def api_budget_reset_pause():
+    """Clear auto-pause state so OTLP intake resumes."""
+    global _budget_paused, _budget_paused_at, _budget_paused_reason
+    _budget_paused = False
+    _budget_paused_at = 0
+    _budget_paused_reason = ''
+    with _budget_lock:
+        cfg = _get_budget_config()
+        cfg['auto_pause_triggered'] = False
+        # Clear critical alerts so they can re-fire if limit hit again
+        cfg['alerts_sent'] = {
+            k: v for k, v in cfg.get('alerts_sent', {}).items()
+            if 'critical' not in k
+        }
+        _save_budget_config(cfg)
+    return jsonify({'ok': True, 'paused': False})
+
+
+@app.route('/api/budget/test-telegram', methods=['POST'])
+def api_budget_test_telegram():
+    """Send a test Telegram notification."""
+    cfg = _get_budget_config()
+    token = cfg.get('telegram_bot_token', '').strip()
+    chat_id = cfg.get('telegram_chat_id', '').strip()
+    if not token or not chat_id:
+        return jsonify({'ok': False, 'error': 'Telegram bot token and chat ID required'}), 400
+    try:
+        import urllib.request
+        url = f'https://api.telegram.org/bot{token}/sendMessage'
+        payload = json.dumps({
+            'chat_id': chat_id,
+            'text': '\u2705 *ClawMetry Budget Alerts* - Test notification successful!',
+            'parse_mode': 'Markdown',
+        }).encode()
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        resp = urllib.request.urlopen(req, timeout=10)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ── Multi-Node Fleet API Routes ──────────────────────────────────────────
@@ -7013,6 +8008,139 @@ def api_node_detail(node_id):
         'latest_metrics': latest,
         'history': history,
     })
+
+
+# ── Budget & Alert API Routes ───────────────────────────────────────────
+
+@app.route('/api/budget/config', methods=['GET', 'POST'])
+def api_budget_config():
+    """Get or update budget configuration."""
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        allowed = ['daily_limit', 'weekly_limit', 'monthly_limit',
+                    'auto_pause_enabled', 'auto_pause_threshold_pct',
+                    'warning_threshold_pct']
+        updates = {k: v for k, v in data.items() if k in allowed}
+        if not updates:
+            return jsonify({'error': 'No valid fields provided'}), 400
+        _set_budget_config(updates)
+        return jsonify({'ok': True})
+    return jsonify(_get_budget_config())
+
+
+@app.route('/api/budget/status')
+def api_budget_status():
+    """Get current budget status with spending totals."""
+    return jsonify(_get_budget_status())
+
+
+@app.route('/api/budget/pause', methods=['POST'])
+def api_budget_pause():
+    """Manually pause the gateway."""
+    global _budget_paused, _budget_paused_at, _budget_paused_reason
+    _budget_paused = True
+    _budget_paused_at = time.time()
+    _budget_paused_reason = 'Manually paused from dashboard'
+    _pause_gateway()
+    return jsonify({'ok': True, 'paused': True})
+
+
+@app.route('/api/budget/resume', methods=['POST'])
+def api_budget_resume():
+    """Resume the gateway after budget pause."""
+    _resume_gateway()
+    return jsonify({'ok': True, 'paused': False})
+
+
+@app.route('/api/alerts/rules', methods=['GET', 'POST'])
+def api_alert_rules():
+    """List or create alert rules."""
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        rtype = data.get('type', '')
+        threshold = data.get('threshold', 0)
+        channels = data.get('channels', ['banner'])
+        cooldown = data.get('cooldown_min', 30)
+        enabled = data.get('enabled', True)
+        if rtype not in ('threshold', 'spike', 'anomaly', 'agent_down'):
+            return jsonify({'error': 'Invalid alert type'}), 400
+        if not isinstance(threshold, (int, float)) or threshold <= 0:
+            return jsonify({'error': 'Threshold must be a positive number'}), 400
+        import uuid
+        rule_id = str(uuid.uuid4())[:8]
+        now = time.time()
+        with _fleet_db_lock:
+            db = _fleet_db()
+            db.execute(
+                "INSERT INTO alert_rules (id, type, threshold, channels, cooldown_min, enabled, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (rule_id, rtype, threshold, json.dumps(channels), cooldown, 1 if enabled else 0, now, now)
+            )
+            db.commit()
+            db.close()
+        return jsonify({'ok': True, 'id': rule_id})
+    return jsonify({'rules': _get_alert_rules()})
+
+
+@app.route('/api/alerts/rules/<rule_id>', methods=['PUT', 'DELETE'])
+def api_alert_rule(rule_id):
+    """Update or delete an alert rule."""
+    if request.method == 'DELETE':
+        with _fleet_db_lock:
+            db = _fleet_db()
+            db.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+            db.commit()
+            db.close()
+        return jsonify({'ok': True})
+    # PUT
+    data = request.get_json(silent=True) or {}
+    sets = []
+    vals = []
+    for field in ['threshold', 'cooldown_min', 'enabled']:
+        if field in data:
+            sets.append(f"{field} = ?")
+            vals.append(data[field] if field != 'enabled' else (1 if data[field] else 0))
+    if 'channels' in data:
+        sets.append("channels = ?")
+        vals.append(json.dumps(data['channels']))
+    if not sets:
+        return jsonify({'error': 'No fields to update'}), 400
+    sets.append("updated_at = ?")
+    vals.append(time.time())
+    vals.append(rule_id)
+    with _fleet_db_lock:
+        db = _fleet_db()
+        db.execute(f"UPDATE alert_rules SET {', '.join(sets)} WHERE id = ?", vals)
+        db.commit()
+        db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/alerts/history')
+def api_alert_history():
+    """Get alert history."""
+    limit = request.args.get('limit', 50, type=int)
+    return jsonify({'alerts': _get_alert_history(limit)})
+
+
+@app.route('/api/alerts/history/<int:alert_id>/ack', methods=['POST'])
+def api_alert_ack(alert_id):
+    """Acknowledge an alert."""
+    with _fleet_db_lock:
+        db = _fleet_db()
+        db.execute(
+            "UPDATE alert_history SET acknowledged = 1, ack_at = ? WHERE id = ?",
+            (time.time(), alert_id)
+        )
+        db.commit()
+        db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/alerts/active')
+def api_alerts_active():
+    """Get active (unacknowledged) alerts."""
+    return jsonify({'alerts': _get_active_alerts()})
 
 
 # ── Enhanced Cost Tracking Utilities ─────────────────────────────────────
@@ -9753,7 +10881,9 @@ def main():
     if args.fleet_db:
         FLEET_DB_PATH = os.path.expanduser(args.fleet_db)
     _fleet_init_db()
+    _budget_init_db()
     _start_fleet_maintenance_thread()
+    _start_budget_monitor_thread()
 
     # Print banner
     print(BANNER.format(version=__version__))
