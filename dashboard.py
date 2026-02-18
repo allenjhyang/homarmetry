@@ -1882,7 +1882,7 @@ DASHBOARD_HTML = r"""
   .zoom-wrapper { transform-origin: top left; transition: transform 0.3s ease; }
 
   /* === Split-Screen Overview === */
-  .overview-split { display: grid; grid-template-columns: 60fr 1px 40fr; gap: 0; margin-bottom: 0; height: calc(100vh - 90px); }
+  .overview-split { display: grid; grid-template-columns: 60fr 1px 40fr; gap: 0; margin-bottom: 0; height: calc(100vh - 175px); }
   .overview-flow-pane { position: relative; border: 1px solid var(--border-primary); border-radius: 8px 0 0 8px; overflow: hidden; background: var(--bg-secondary); padding: 4px; }
   .overview-flow-pane .flow-container { height: 100%; }
   .overview-flow-pane svg { width: 100%; height: 100%; min-width: 0 !important; }
@@ -1981,7 +1981,7 @@ DASHBOARD_HTML = r"""
   .tg-load-more button:hover { background: var(--button-hover); }
   .comp-modal-footer { border-top: 1px solid var(--border-primary); padding: 10px 20px; font-size: 11px; color: var(--text-muted); }
   /* === Compact Stats Footer Bar === */
-  .stats-footer { display: flex; gap: 0; border: 1px solid var(--border-primary); border-radius: 8px; margin-top: 6px; background: var(--bg-tertiary); overflow: hidden; }
+  .stats-footer { display: flex; gap: 0; border: 1px solid var(--border-primary); border-radius: 8px; margin-bottom: 6px; background: var(--bg-tertiary); overflow: hidden; }
   .stats-footer-item { flex: 1; padding: 6px 12px; display: flex; align-items: center; gap: 8px; border-right: 1px solid var(--border-primary); cursor: pointer; transition: background 0.15s; }
   .stats-footer-item:last-child { border-right: none; }
   .stats-footer-item:hover { background: var(--bg-hover); }
@@ -2269,11 +2269,51 @@ function clawmetryLogout(){
     <span class="refresh-time" id="refresh-time" style="font-size:11px;">Loading...</span>
   </div>
 
+  <!-- Stats Bar (top) -->
+  <div class="stats-footer">
+    <div class="stats-footer-item" onclick="openDetailView('cost')">
+      <span class="stats-footer-icon">💰</span>
+      <div>
+        <div class="stats-footer-label">Spending</div>
+        <div class="stats-footer-value" id="cost-today">$0.00</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;">
+        <div class="stats-footer-sub">wk: <span id="cost-week">—</span></div>
+        <div class="stats-footer-sub">mo: <span id="cost-month">—</span></div>
+      </div>
+      <span id="cost-trend" style="display:none;">Today's running total</span>
+    </div>
+    <div class="stats-footer-item" onclick="openDetailView('models')">
+      <span class="stats-footer-icon">🤖</span>
+      <div>
+        <div class="stats-footer-label">Model</div>
+        <div class="stats-footer-value" id="model-primary">—</div>
+      </div>
+      <div id="model-breakdown" style="display:none;">Loading...</div>
+    </div>
+    <div class="stats-footer-item" onclick="openDetailView('tokens')">
+      <span class="stats-footer-icon">📊</span>
+      <div>
+        <div class="stats-footer-label">Tokens</div>
+        <div class="stats-footer-value" id="token-rate">—</div>
+      </div>
+      <span class="stats-footer-sub" style="margin-left:auto;">today: <span id="tokens-today" style="color:var(--text-success);font-weight:600;">—</span></span>
+    </div>
+    <div class="stats-footer-item" onclick="switchTab('sessions')">
+      <span class="stats-footer-icon">💬</span>
+      <div>
+        <div class="stats-footer-label">Sessions</div>
+        <div class="stats-footer-value" id="hot-sessions-count">—</div>
+      </div>
+      <div id="hot-sessions-list" style="display:none;">Loading...</div>
+    </div>
+  </div>
+
   <!-- Split Screen: Flow Left | Tasks Right -->
   <div class="overview-split">
     <!-- LEFT: Flow + Brain stacked -->
     <div style="display:flex;flex-direction:column;">
-      <div class="overview-flow-pane" style="border-radius:8px 0 0 0;">
+      <div class="overview-flow-pane" style="border-radius:8px 0 0 0;flex:3;min-height:0;">
         <div class="grid-overlay"></div>
         <div class="scanline-overlay"></div>
         <div class="flow-container" id="overview-flow-container">
@@ -2283,7 +2323,7 @@ function clawmetryLogout(){
       </div>
 
       <!-- 🧠 Brain Panel: Main Agent Activity -->
-      <div id="main-activity-panel" style="background:linear-gradient(180deg, var(--bg-secondary) 0%, #12121a 100%);border:1px solid var(--border-primary);border-top:1px solid var(--border-secondary);padding:10px 14px 8px;min-height:60px;max-height:180px;display:flex;flex-direction:column;overflow:hidden;">
+      <div id="main-activity-panel" style="background:linear-gradient(180deg, var(--bg-secondary) 0%, #12121a 100%);border:1px solid var(--border-primary);border-top:1px solid var(--border-secondary);padding:10px 14px 8px;min-height:80px;flex:1;display:flex;flex-direction:column;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
           <div style="display:flex;align-items:center;gap:6px;">
             <span id="main-activity-dot" style="width:8px;height:8px;border-radius:50%;background:#888;display:inline-block;"></span>
@@ -2331,46 +2371,6 @@ function clawmetryLogout(){
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);font-weight:600;margin-bottom:6px;">Token Usage</div>
         <div style="padding:12px;background:var(--bg-tertiary);border-radius:8px;text-align:center;color:var(--text-muted);font-size:12px;">📊 Coming soon</div>
       </div>
-    </div>
-  </div>
-
-  <!-- Compact Stats Footer Bar -->
-  <div class="stats-footer">
-    <div class="stats-footer-item" onclick="openDetailView('cost')">
-      <span class="stats-footer-icon">💰</span>
-      <div>
-        <div class="stats-footer-label">Spending</div>
-        <div class="stats-footer-value" id="cost-today">$0.00</div>
-      </div>
-      <div style="margin-left:auto;text-align:right;">
-        <div class="stats-footer-sub">wk: <span id="cost-week">—</span></div>
-        <div class="stats-footer-sub">mo: <span id="cost-month">—</span></div>
-      </div>
-      <span id="cost-trend" style="display:none;">Today's running total</span>
-    </div>
-    <div class="stats-footer-item" onclick="openDetailView('models')">
-      <span class="stats-footer-icon">🤖</span>
-      <div>
-        <div class="stats-footer-label">Model</div>
-        <div class="stats-footer-value" id="model-primary">—</div>
-      </div>
-      <div id="model-breakdown" style="display:none;">Loading...</div>
-    </div>
-    <div class="stats-footer-item" onclick="openDetailView('tokens')">
-      <span class="stats-footer-icon">📊</span>
-      <div>
-        <div class="stats-footer-label">Tokens</div>
-        <div class="stats-footer-value" id="token-rate">—</div>
-      </div>
-      <span class="stats-footer-sub" style="margin-left:auto;">today: <span id="tokens-today" style="color:var(--text-success);font-weight:600;">—</span></span>
-    </div>
-    <div class="stats-footer-item" onclick="switchTab('sessions')">
-      <span class="stats-footer-icon">💬</span>
-      <div>
-        <div class="stats-footer-label">Sessions</div>
-        <div class="stats-footer-value" id="hot-sessions-count">—</div>
-      </div>
-      <div id="hot-sessions-list" style="display:none;">Loading...</div>
     </div>
   </div>
 
