@@ -2271,30 +2271,32 @@ function clawmetryLogout(){
 
   <!-- Split Screen: Flow Left | Tasks Right -->
   <div class="overview-split">
-    <!-- LEFT: Flow Visualization -->
-    <div class="overview-flow-pane">
-      <div class="grid-overlay"></div>
-      <div class="scanline-overlay"></div>
-      <div class="flow-container" id="overview-flow-container">
-        <!-- Flow SVG cloned here by JS -->
-        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">Loading flow...</div>
-      </div>
-    </div>
-
-    <!-- 🧠 Brain Panel: Main Agent Activity (below Flow, left side) -->
-    <div id="main-activity-panel" style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:0 0 8px 8px;border-top:none;padding:14px 16px;max-height:250px;display:flex;flex-direction:column;overflow:hidden;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:14px;font-weight:700;color:var(--text-primary);">🧠 <span id="main-activity-model">Claude Opus</span></span>
-          <span id="main-activity-status" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg-tertiary);color:var(--text-muted);">
-            <span id="main-activity-dot" style="width:7px;height:7px;border-radius:50%;background:#888;display:inline-block;"></span>
-            <span id="main-activity-label">...</span>
-          </span>
+    <!-- LEFT: Flow + Brain stacked -->
+    <div style="display:flex;flex-direction:column;">
+      <div class="overview-flow-pane" style="border-radius:8px 0 0 0;">
+        <div class="grid-overlay"></div>
+        <div class="scanline-overlay"></div>
+        <div class="flow-container" id="overview-flow-container">
+          <!-- Flow SVG cloned here by JS -->
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">Loading flow...</div>
         </div>
-        <span style="font-size:10px;color:var(--text-faint);letter-spacing:0.5px;">⟳ 5s</span>
       </div>
-      <div id="main-activity-list" style="overflow-y:auto;flex:1;font-size:12px;font-family:'JetBrains Mono',monospace;">
-        <div style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">Loading...</div>
+
+      <!-- 🧠 Brain Panel: Main Agent Activity -->
+      <div id="main-activity-panel" style="background:var(--bg-secondary);border:1px solid var(--border-primary);border-top:none;border-radius:0 0 0 8px;padding:14px 16px;max-height:220px;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;font-weight:700;color:var(--text-primary);">🧠 <span id="main-activity-model">Claude Opus</span></span>
+            <span id="main-activity-status" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg-tertiary);color:var(--text-muted);">
+              <span id="main-activity-dot" style="width:7px;height:7px;border-radius:50%;background:#888;display:inline-block;"></span>
+              <span id="main-activity-label">...</span>
+            </span>
+          </div>
+          <span style="font-size:10px;color:var(--text-faint);letter-spacing:0.5px;">⟳ 5s</span>
+        </div>
+        <div id="main-activity-list" style="overflow-y:auto;flex:1;font-size:12px;font-family:'JetBrains Mono',monospace;">
+          <div style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">Loading...</div>
+        </div>
       </div>
     </div>
 
