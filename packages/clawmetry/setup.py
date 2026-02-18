@@ -16,6 +16,9 @@ setup(
     install_requires=[
         "openclaw-dashboard>=0.2.8",
     ],
+    extras_require={
+        "otel": ["opentelemetry-proto>=1.20.0", "protobuf>=4.21.0"],
+    },
     entry_points={
         "console_scripts": [
             "clawmetry=dashboard:main",

@@ -1073,7 +1073,7 @@ def validate_configuration():
     
     # Check if OpenClaw binary is available
     try:
-        subprocess.run(['openclaw', '--version'], capture_output=True, timeout=2)
+        subprocess.run(['openclaw', '--version'], capture_output=True, timeout=10)
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
         warnings.append("⚠️  OpenClaw binary not found in PATH")
         tips.append("💡 Install OpenClaw: https://github.com/openclaw/openclaw")
