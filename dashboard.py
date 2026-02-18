@@ -1457,9 +1457,12 @@ DASHBOARD_HTML = r"""
     .then(function(r){return r.json()})
     .then(function(d){
       if(d.needsSetup){
-        // No gateway token configured — show gateway setup wizard
+        // No gateway token configured — show mandatory gateway setup wizard
         document.getElementById('login-overlay').style.display='none';
-        document.getElementById('gw-setup-overlay').style.display='flex';
+        var overlay=document.getElementById('gw-setup-overlay');
+        overlay.dataset.mandatory='true';
+        document.getElementById('gw-setup-close').style.display='none';
+        overlay.style.display='flex';
         return;
       }
       if(!d.authRequired){
@@ -1526,7 +1529,7 @@ function clawmetryLogout(){
 <div class="zoom-wrapper" id="zoom-wrapper">
 <div class="nav">
   <h1><span>🦞</span> ClawMetry</h1>
-  <div class="theme-toggle" onclick="document.getElementById('gw-setup-overlay').style.display='flex'" title="Gateway settings" style="cursor:pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+  <div class="theme-toggle" onclick="var o=document.getElementById('gw-setup-overlay');o.dataset.mandatory='false';document.getElementById('gw-setup-close').style.display='';o.style.display='flex'" title="Gateway settings" style="cursor:pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
   <div class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle theme"><svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></div>
   <div class="theme-toggle" id="logout-btn" onclick="clawmetryLogout()" title="Logout" style="display:none;cursor:pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
   <div class="zoom-controls">
@@ -5614,8 +5617,9 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 <!-- Gateway Setup Wizard -->
-<div id="gw-setup-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; align-items:center; justify-content:center; font-family:Manrope,sans-serif;">
-  <div style="background:var(--bg-secondary, #1a1a2e); border:1px solid var(--border-primary, #333); border-radius:16px; padding:40px; max-width:440px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+<div id="gw-setup-overlay" data-mandatory="false" onclick="if(event.target===this && this.dataset.mandatory!=='true'){this.style.display='none'}" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; align-items:center; justify-content:center; font-family:Manrope,sans-serif;">
+  <div style="background:var(--bg-secondary, #1a1a2e); border:1px solid var(--border-primary, #333); border-radius:16px; padding:40px; max-width:440px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.5); position:relative;">
+    <button id="gw-setup-close" onclick="document.getElementById('gw-setup-overlay').style.display='none'" style="display:none; position:absolute; top:12px; right:16px; background:none; border:none; color:var(--text-muted, #888); font-size:22px; cursor:pointer; padding:4px 8px; line-height:1;">✕</button>
     <div style="font-size:48px; margin-bottom:16px;">🦞</div>
     <h2 style="color:var(--text-primary, #fff); margin:0 0 8px; font-size:24px; font-weight:700;">ClawMetry Setup</h2>
     <p style="color:var(--text-muted, #888); margin:0 0 24px; font-size:14px;">Enter your OpenClaw gateway token to connect.</p>
