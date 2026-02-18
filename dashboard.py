@@ -39,7 +39,7 @@ except ImportError:
     metrics_service_pb2 = None
     trace_service_pb2 = None
 
-__version__ = "0.8.4"
+__version__ = "0.9.0"
 
 app = Flask(__name__)
 
@@ -60,6 +60,11 @@ _stream_clients_lock = threading.Lock()
 _active_log_stream_clients = 0
 _active_health_stream_clients = 0
 EXTRA_SERVICES = []  # List of {'name': str, 'port': int} from --monitor-service flags
+
+# ── Multi-Node Fleet Configuration ─────────────────────────────────────
+FLEET_API_KEY = os.environ.get("CLAWMETRY_FLEET_KEY", "")
+FLEET_DB_PATH = None  # Set via CLI or auto-detected
+FLEET_NODE_TIMEOUT = 300  # seconds before node is considered offline
 
 # ── OTLP Metrics Store ─────────────────────────────────────────────────
 METRICS_FILE = None  # Set via CLI/env, defaults to {WORKSPACE}/.clawmetry-metrics.json
@@ -188,6 +193,110 @@ def _start_metrics_flush_thread():
 def _has_otel_data():
     """Check if we have any OTLP metrics data."""
     return any(len(metrics_store[k]) > 0 for k in metrics_store)
+
+
+# ── Multi-Node Fleet Database ───────────────────────────────────────────
+import sqlite3 as _sqlite3
+import hashlib as _hashlib
+
+_fleet_db_lock = threading.Lock()
+
+
+def _fleet_db_path():
+    """Get path to the fleet SQLite database."""
+    if FLEET_DB_PATH:
+        return FLEET_DB_PATH
+    if WORKSPACE:
+        return os.path.join(WORKSPACE, '.clawmetry-fleet.db')
+    return os.path.expanduser('~/.clawmetry-fleet.db')
+
+
+def _fleet_db():
+    """Get a SQLite connection to the fleet database."""
+    db = _sqlite3.connect(_fleet_db_path(), timeout=10)
+    db.row_factory = _sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    return db
+
+
+def _fleet_init_db():
+    """Initialize fleet database tables."""
+    path = _fleet_db_path()
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    db = _fleet_db()
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS nodes (
+            node_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            hostname TEXT,
+            tags TEXT,
+            api_key_hash TEXT,
+            version TEXT,
+            registered_at REAL,
+            last_seen_at REAL,
+            status TEXT DEFAULT 'unknown'
+        );
+        CREATE TABLE IF NOT EXISTS node_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            metrics_json TEXT NOT NULL,
+            FOREIGN KEY (node_id) REFERENCES nodes(node_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_node_metrics_node_ts
+            ON node_metrics(node_id, timestamp DESC);
+    """)
+    db.close()
+
+
+def _fleet_check_key(req):
+    """Validate fleet API key from request header. Returns True if valid."""
+    if not FLEET_API_KEY:
+        return True  # No key configured = open (for dev/testing)
+    key = req.headers.get('X-Fleet-Key', '')
+    return key == FLEET_API_KEY
+
+
+def _fleet_update_statuses():
+    """Update node statuses based on last_seen_at."""
+    cutoff = time.time() - FLEET_NODE_TIMEOUT
+    with _fleet_db_lock:
+        db = _fleet_db()
+        db.execute(
+            "UPDATE nodes SET status = 'offline' WHERE last_seen_at < ? AND status != 'offline'",
+            (cutoff,)
+        )
+        db.commit()
+        db.close()
+
+
+def _fleet_prune_metrics():
+    """Remove metrics older than 7 days."""
+    cutoff = time.time() - (7 * 86400)
+    with _fleet_db_lock:
+        db = _fleet_db()
+        db.execute("DELETE FROM node_metrics WHERE timestamp < ?", (cutoff,))
+        db.commit()
+        db.close()
+
+
+def _fleet_maintenance_loop():
+    """Background thread: update statuses and prune old metrics."""
+    while True:
+        time.sleep(300)  # every 5 minutes
+        try:
+            _fleet_update_statuses()
+            _fleet_prune_metrics()
+        except Exception as e:
+            print(f"Warning: Fleet maintenance error: {e}")
+
+
+def _start_fleet_maintenance_thread():
+    """Start the background fleet maintenance thread."""
+    t = threading.Thread(target=_fleet_maintenance_loop, daemon=True)
+    t.start()
 
 
 # ── OTLP Protobuf Helpers ──────────────────────────────────────────────
@@ -6162,6 +6271,8 @@ def _check_auth():
         return  # Auth check endpoint is always accessible
     if request.path == '/api/gw/config':
         return  # Gateway setup must work before auth is configured
+    if request.path.startswith('/api/nodes'):
+        return  # Fleet API uses its own X-Fleet-Key authentication
     if not request.path.startswith('/api/'):
         return  # HTML, static, etc. are fine
     if not GATEWAY_TOKEN:
@@ -6625,6 +6736,282 @@ def api_otel_status():
         'hasData': _has_otel_data(),
         'lastReceived': _otel_last_received,
         'counts': counts,
+    })
+
+
+# ── Multi-Node Fleet API Routes ──────────────────────────────────────────
+
+FLEET_HTML = r"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClawMetry Fleet</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Manrope', sans-serif; background: #0f1117; color: #e0e0e0; padding: 24px; }
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .header h1 { font-size: 28px; font-weight: 800; }
+  .header h1 span { color: #0f6fff; }
+  .header .back { color: #667; text-decoration: none; font-size: 14px; }
+  .header .back:hover { color: #0f6fff; }
+  .summary { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .stat-card { background: #1a1d27; border: 1px solid #2a2d37; border-radius: 12px; padding: 16px 20px; min-width: 150px; }
+  .stat-card .label { font-size: 12px; color: #667; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .stat-card .value.green { color: #22c55e; }
+  .stat-card .value.red { color: #ef4444; }
+  .stat-card .value.blue { color: #0f6fff; }
+  .search { margin-bottom: 16px; }
+  .search input { background: #1a1d27; border: 1px solid #2a2d37; border-radius: 8px; padding: 10px 16px; color: #e0e0e0; font-size: 14px; width: 300px; outline: none; }
+  .search input:focus { border-color: #0f6fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .node-card { background: #1a1d27; border: 1px solid #2a2d37; border-radius: 12px; padding: 20px; cursor: pointer; transition: border-color 0.2s, transform 0.1s; }
+  .node-card:hover { border-color: #0f6fff; transform: translateY(-2px); }
+  .node-card .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .node-card .name { font-size: 16px; font-weight: 700; }
+  .node-card .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .node-card .status.online { background: #16301d; color: #22c55e; }
+  .node-card .status.offline { background: #2d1515; color: #ef4444; }
+  .node-card .status.unknown { background: #2a2a1a; color: #eab308; }
+  .node-card .meta { font-size: 12px; color: #667; margin-bottom: 12px; }
+  .node-card .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .node-card .metric { }
+  .node-card .metric .ml { font-size: 11px; color: #667; }
+  .node-card .metric .mv { font-size: 15px; font-weight: 600; }
+  .empty { text-align: center; padding: 60px; color: #667; }
+  .empty h2 { font-size: 20px; margin-bottom: 8px; color: #888; }
+  .empty code { background: #1a1d27; padding: 2px 8px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <a href="/" class="back">< Dashboard</a>
+  <h1><span>ClawMetry</span> Fleet</h1>
+</div>
+<div class="summary" id="summary"></div>
+<div class="search"><input type="text" id="search" placeholder="Search nodes..." oninput="filterNodes()"></div>
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none">
+  <h2>No nodes registered yet</h2>
+  <p>Register a node by sending a POST request:</p>
+  <p style="margin-top:12px"><code>curl -X POST -H "X-Fleet-Key: YOUR_KEY" -H "Content-Type: application/json" \<br>
+  -d '{"node_id":"my-node","name":"My Agent"}' http://THIS_HOST/api/nodes/register</code></p>
+</div>
+<script>
+let allNodes = [];
+async function load() {
+  const r = await fetch('/api/nodes');
+  const d = await r.json();
+  allNodes = d.nodes || [];
+  const s = d.fleet_summary || {};
+  document.getElementById('summary').innerHTML = `
+    <div class="stat-card"><div class="label">Total Nodes</div><div class="value blue">${s.total_nodes||0}</div></div>
+    <div class="stat-card"><div class="label">Online</div><div class="value green">${s.online||0}</div></div>
+    <div class="stat-card"><div class="label">Offline</div><div class="value red">${s.offline||0}</div></div>
+    <div class="stat-card"><div class="label">Cost Today</div><div class="value">$${(s.total_cost_today||0).toFixed(2)}</div></div>
+    <div class="stat-card"><div class="label">Sessions Today</div><div class="value">${s.total_sessions_today||0}</div></div>
+  `;
+  renderNodes(allNodes);
+}
+function renderNodes(nodes) {
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  if (!nodes.length) { grid.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  grid.innerHTML = nodes.map(n => {
+    const m = n.latest_metrics || {};
+    const ago = n.last_seen_at ? timeSince(n.last_seen_at) : 'never';
+    const cost = (m.cost && m.cost.today_usd) ? m.cost.today_usd.toFixed(2) : '0.00';
+    const sessions = (m.sessions && m.sessions.total_today) || 0;
+    const model = m.model || 'unknown';
+    const disk = (m.health && m.health.disk_pct) ? m.health.disk_pct.toFixed(0)+'%' : '-';
+    return `<div class="node-card" onclick="location.href='/api/nodes/${n.node_id}'">
+      <div class="top"><div class="name">${esc(n.name||n.node_id)}</div><div class="status ${n.status}">${n.status}</div></div>
+      <div class="meta">${esc(n.hostname||'')} - last seen ${ago}</div>
+      <div class="metrics">
+        <div class="metric"><div class="ml">Cost Today</div><div class="mv">$${cost}</div></div>
+        <div class="metric"><div class="ml">Sessions</div><div class="mv">${sessions}</div></div>
+        <div class="metric"><div class="ml">Model</div><div class="mv">${esc(model)}</div></div>
+        <div class="metric"><div class="ml">Disk</div><div class="mv">${disk}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function filterNodes() {
+  const q = document.getElementById('search').value.toLowerCase();
+  renderNodes(allNodes.filter(n => (n.name||'').toLowerCase().includes(q) || (n.node_id||'').includes(q) || (n.hostname||'').toLowerCase().includes(q) || JSON.stringify(n.tags||[]).toLowerCase().includes(q)));
+}
+function timeSince(ts) {
+  const s = Math.floor(Date.now()/1000 - ts);
+  if (s<60) return s+'s ago'; if (s<3600) return Math.floor(s/60)+'m ago';
+  if (s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+}
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
+"""
+
+
+@app.route('/fleet')
+def fleet_page():
+    """Fleet overview page for multi-node monitoring."""
+    return FLEET_HTML
+
+
+@app.route('/api/nodes/register', methods=['POST'])
+def api_nodes_register():
+    """Register or update a remote node."""
+    if not _fleet_check_key(request):
+        return jsonify({'error': 'Invalid or missing X-Fleet-Key'}), 401
+
+    data = request.get_json(silent=True) or {}
+    node_id = data.get('node_id', '').strip()
+    if not node_id:
+        return jsonify({'error': 'node_id is required'}), 400
+
+    name = data.get('name', node_id)
+    hostname = data.get('hostname', '')
+    tags = json.dumps(data.get('tags', []))
+    version = data.get('version', '')
+    now = time.time()
+
+    with _fleet_db_lock:
+        db = _fleet_db()
+        db.execute("""
+            INSERT INTO nodes (node_id, name, hostname, tags, version, registered_at, last_seen_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'online')
+            ON CONFLICT(node_id) DO UPDATE SET
+                name=excluded.name, hostname=excluded.hostname, tags=excluded.tags,
+                version=excluded.version, last_seen_at=excluded.last_seen_at, status='online'
+        """, (node_id, name, hostname, tags, version, now, now))
+        db.commit()
+        db.close()
+
+    return jsonify({'ok': True, 'node_id': node_id})
+
+
+@app.route('/api/nodes/<node_id>/metrics', methods=['POST'])
+def api_nodes_push_metrics(node_id):
+    """Receive metrics push from a remote node."""
+    if not _fleet_check_key(request):
+        return jsonify({'error': 'Invalid or missing X-Fleet-Key'}), 401
+
+    data = request.get_json(silent=True) or {}
+    now = time.time()
+
+    with _fleet_db_lock:
+        db = _fleet_db()
+        # Update last_seen
+        db.execute(
+            "UPDATE nodes SET last_seen_at = ?, status = 'online' WHERE node_id = ?",
+            (now, node_id)
+        )
+        # Store metrics snapshot
+        db.execute(
+            "INSERT INTO node_metrics (node_id, timestamp, metrics_json) VALUES (?, ?, ?)",
+            (node_id, now, json.dumps(data))
+        )
+        db.commit()
+        db.close()
+
+    return jsonify({'ok': True, 'received_at': now})
+
+
+@app.route('/api/nodes')
+def api_nodes_list():
+    """List all registered nodes with latest metrics."""
+    _fleet_update_statuses()
+
+    with _fleet_db_lock:
+        db = _fleet_db()
+        nodes = db.execute("SELECT * FROM nodes ORDER BY name").fetchall()
+        result = []
+        total_cost = 0
+        total_sessions = 0
+        online_count = 0
+        offline_count = 0
+
+        for node in nodes:
+            n = dict(node)
+            n['tags'] = json.loads(n.get('tags') or '[]')
+
+            # Get latest metrics
+            row = db.execute(
+                "SELECT metrics_json FROM node_metrics WHERE node_id = ? ORDER BY timestamp DESC LIMIT 1",
+                (n['node_id'],)
+            ).fetchone()
+            n['latest_metrics'] = json.loads(row['metrics_json']) if row else {}
+
+            # Aggregate stats
+            m = n['latest_metrics']
+            if m.get('cost', {}).get('today_usd'):
+                total_cost += m['cost']['today_usd']
+            if m.get('sessions', {}).get('total_today'):
+                total_sessions += m['sessions']['total_today']
+
+            if n['status'] == 'online':
+                online_count += 1
+            else:
+                offline_count += 1
+
+            # Remove internal fields
+            n.pop('api_key_hash', None)
+            result.append(n)
+
+        db.close()
+
+    return jsonify({
+        'nodes': result,
+        'fleet_summary': {
+            'total_nodes': len(result),
+            'online': online_count,
+            'offline': offline_count,
+            'total_cost_today': round(total_cost, 2),
+            'total_sessions_today': total_sessions,
+        }
+    })
+
+
+@app.route('/api/nodes/<node_id>')
+def api_node_detail(node_id):
+    """Get detailed info for a single node with metric history."""
+    with _fleet_db_lock:
+        db = _fleet_db()
+        node = db.execute("SELECT * FROM nodes WHERE node_id = ?", (node_id,)).fetchone()
+        if not node:
+            db.close()
+            return jsonify({'error': 'Node not found'}), 404
+
+        n = dict(node)
+        n['tags'] = json.loads(n.get('tags') or '[]')
+        n.pop('api_key_hash', None)
+
+        # Latest metrics
+        latest_row = db.execute(
+            "SELECT metrics_json FROM node_metrics WHERE node_id = ? ORDER BY timestamp DESC LIMIT 1",
+            (node_id,)
+        ).fetchone()
+        latest = json.loads(latest_row['metrics_json']) if latest_row else {}
+
+        # 24h history
+        cutoff = time.time() - 86400
+        history_rows = db.execute(
+            "SELECT timestamp, metrics_json FROM node_metrics WHERE node_id = ? AND timestamp > ? ORDER BY timestamp",
+            (node_id, cutoff)
+        ).fetchall()
+        history = [{'timestamp': r['timestamp'], 'metrics': json.loads(r['metrics_json'])} for r in history_rows]
+
+        db.close()
+
+    return jsonify({
+        'node': n,
+        'latest_metrics': latest,
+        'history': history,
     })
 
 
@@ -9308,6 +9695,8 @@ def main():
     parser.add_argument('--monitor-service', action='append', default=[], metavar='NAME:PORT',
                         help='Additional service to monitor (e.g. "My App:8080"). Can be repeated.')
     parser.add_argument('--mc-url', type=str, help='Mission Control URL (e.g. http://localhost:3002). Disabled by default.')
+    parser.add_argument('--fleet-api-key', type=str, help='API key for multi-node fleet authentication. Also via CLAWMETRY_FLEET_KEY env.')
+    parser.add_argument('--fleet-db', type=str, help='Path to fleet SQLite database file.')
     parser.add_argument('--version', '-v', action='version', version=f'clawmetry {__version__}')
 
     args = parser.parse_args()
@@ -9357,6 +9746,15 @@ def main():
     _load_metrics_from_disk()
     _start_metrics_flush_thread()
 
+    # Fleet multi-node setup
+    global FLEET_API_KEY, FLEET_DB_PATH
+    if args.fleet_api_key:
+        FLEET_API_KEY = args.fleet_api_key
+    if args.fleet_db:
+        FLEET_DB_PATH = os.path.expanduser(args.fleet_db)
+    _fleet_init_db()
+    _start_fleet_maintenance_thread()
+
     # Print banner
     print(BANNER.format(version=__version__))
     print(f"  Workspace:  {WORKSPACE}")
@@ -9367,6 +9765,8 @@ def main():
     print(f"  User:       {USER_NAME}")
     print(f"  Mode:       {'🛠️  Dev (auto-reload ON)' if args.debug else '🚀 Prod (auto-reload OFF)'}")
     print(f"  SSE Limits: {SSE_MAX_SECONDS}s max duration · logs {MAX_LOG_STREAM_CLIENTS} clients · health {MAX_HEALTH_STREAM_CLIENTS} clients")
+    print(f"  Fleet DB:   {_fleet_db_path()}")
+    print(f"  Fleet Auth: {'Enabled (key set)' if FLEET_API_KEY else 'Open (no key - set --fleet-api-key for production)'}")
     print()
 
     # Validate configuration and show warnings/tips for new users
