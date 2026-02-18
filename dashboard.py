@@ -3410,18 +3410,14 @@ async function loadActiveTasks() {
     var grid = document.getElementById('overview-tasks-list') || document.getElementById('active-tasks-grid');
     if (!grid) return;
 
-    // Fetch from both MC tasks and subagents in parallel
-    var [mcData, saData] = await Promise.all([
-      fetch('/api/mc-tasks').then(r => r.json()).then(function(d) { return {tasks: (d.tasks||[]).filter(function(t){return t.column==='in_progress';})}; }).catch(function() { return {tasks:[]}; }),
-      fetch('/api/subagents').then(r => r.json()).catch(function() { return {subagents:[]}; })
-    ]);
+    // Fetch active sub-agents
+    var saData = await fetch('/api/subagents').then(r => r.json()).catch(function() { return {subagents:[]}; });
 
-    var mcTasks = mcData.tasks || [];
     var agents = (saData.subagents || []).filter(function(a) {
       return a.status === 'active';
     });
 
-    if (mcTasks.length === 0 && agents.length === 0) {
+    if (agents.length === 0) {
       grid.innerHTML = '<div class="card" style="text-align:center;padding:24px;color:var(--text-muted);grid-column:1/-1;">'
         + '<div style="font-size:24px;margin-bottom:8px;">✨</div>'
         + '<div style="font-size:13px;">No active tasks - all quiet</div></div>';
@@ -3431,51 +3427,10 @@ async function loadActiveTasks() {
     }
 
     var html = '';
-    var totalCount = mcTasks.length + agents.length;
     var badge = document.getElementById('overview-tasks-count-badge');
-    if (badge) badge.textContent = totalCount + ' active';
+    if (badge) badge.textContent = agents.length + ' active';
 
-    // Priority colors
-    var priColors = { urgent: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
-
-    // Render MC tasks
-    mcTasks.forEach(function(task) {
-      var now = Date.now();
-      var created = new Date(task.createdAt).getTime();
-      var elapsed = now - created;
-      var timeStr = humanTime(elapsed);
-      var pri = (task.priority || 'medium').toLowerCase();
-      var priColor = priColors[pri] || '#6b7280';
-      var taskTitle = (task.title || 'Untitled').replace(/^\[.*?\]\s*/, '');
-      if (taskTitle.length > 80) taskTitle = taskTitle.substring(0, 77) + '…';
-      var mcUrl = 'http://192.168.178.57:3002';
-
-      html += '<div class="task-card running" style="cursor:pointer;" onclick="window.open(\'' + mcUrl + '\',\'_blank\')">';
-      html += '<div class="task-card-pulse active"></div>';
-      html += '<div class="task-card-header">';
-      html += '<div class="task-card-name">' + escHtml(taskTitle) + '</div>';
-      html += '<span class="task-card-badge running" style="font-size:10px;">🔄 In Progress</span>';
-      html += '</div>';
-      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">';
-      html += '<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:' + priColor + '22;color:' + priColor + ';border:1px solid ' + priColor + '44;text-transform:capitalize;">' + escHtml(pri) + '</span>';
-      if (task.companyId) {
-        html += '<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary);">' + escHtml(task.companyId) + '</span>';
-      }
-      if (timeStr) {
-        html += '<span style="font-size:11px;color:var(--text-muted);">' + escHtml(timeStr) + '</span>';
-      }
-      html += '</div>';
-      if (task.comments && task.comments.length > 0) {
-        var lastComment = task.comments[task.comments.length - 1];
-        if (lastComment && lastComment.text) {
-          var commentText = lastComment.text.length > 100 ? lastComment.text.substring(0, 97) + '…' : lastComment.text;
-          html += '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;font-style:italic;">💬 ' + escHtml(commentText) + '</div>';
-        }
-      }
-      html += '</div>';
-    });
-
-    // Render active sub-agents (compact)
+    // Render active sub-agents
     agents.forEach(function(agent) {
       var taskName = cleanTaskName(agent.displayName);
       var badge2 = detectProjectBadge(agent.displayName);
@@ -7690,19 +7645,6 @@ def index():
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
-
-@app.route('/api/mc-tasks')
-def api_mc_tasks():
-    if not MC_URL:
-        return jsonify({'available': False, 'tasks': []})
-    try:
-        import requests as _req
-        r = _req.get(f'{MC_URL}/api/tasks', timeout=3)
-        data = r.json()
-        data['available'] = True
-        return jsonify(data)
-    except Exception:
-        return jsonify({'available': False, 'tasks': []})
 
 @app.route('/api/channels')
 def api_channels():
