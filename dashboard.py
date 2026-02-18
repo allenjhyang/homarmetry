@@ -100,7 +100,7 @@ def _metrics_file_path():
 
 def _load_metrics_from_disk():
     """Load persisted metrics on startup."""
-    global metrics_store, _otel_last_received, _budget_paused, _budget_paused_at, _budget_paused_reason
+    global metrics_store, _otel_last_received
     path = _metrics_file_path()
     if not os.path.exists(path):
         return
@@ -112,11 +112,6 @@ def _load_metrics_from_disk():
                 if key in data and isinstance(data[key], list):
                     metrics_store[key] = data[key][-MAX_STORE_ENTRIES:]
             _otel_last_received = data.get('_last_received', 0)
-            # Restore auto-pause state from budget config
-            budget = data.get('budget', {})
-            if budget.get('auto_pause_triggered'):
-                _budget_paused = True
-                _budget_paused_reason = 'Restored from saved state'
         _expire_old_entries()
     except json.JSONDecodeError as e:
         print(f"⚠️  Warning: Failed to parse metrics file {path}: {e}")
@@ -186,179 +181,6 @@ def _add_metric(category, entry):
         except Exception:
             pass
 
-
-# ── Budget Controls & Spending Alerts ───────────────────────────────────
-
-_budget_lock = threading.Lock()
-
-_DEFAULT_BUDGET = {
-    'daily_limit_usd': 0.0,
-    'weekly_limit_usd': 0.0,
-    'monthly_limit_usd': 0.0,
-    'warn_at_pct': 80,
-    'auto_pause_enabled': False,
-    'auto_pause_triggered': False,
-    'telegram_bot_token': '',
-    'telegram_chat_id': '',
-    'telegram_enabled': False,
-    'alerts_sent': {},
-}
-
-
-def _get_budget_config():
-    """Get budget config from metrics file data. Returns a copy."""
-    path = _metrics_file_path()
-    try:
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                data = json.load(f)
-            stored = data.get('budget', {})
-            cfg = dict(_DEFAULT_BUDGET)
-            cfg.update({k: v for k, v in stored.items() if k in _DEFAULT_BUDGET})
-            return cfg
-    except Exception:
-        pass
-    return dict(_DEFAULT_BUDGET)
-
-
-def _save_budget_config(cfg):
-    """Persist budget config into the metrics JSON file."""
-    path = _metrics_file_path()
-    try:
-        data = {}
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                data = json.load(f)
-        data['budget'] = cfg
-        tmp = path + '.tmp'
-        with open(tmp, 'w') as f:
-            json.dump(data, f)
-        os.replace(tmp, path)
-    except Exception as e:
-        print(f"Warning: Failed to save budget config: {e}")
-
-
-def _get_period_costs():
-    """Compute accumulated cost for today, this week, this month."""
-    now = datetime.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    # Monday of this week
-    week_start = (now - timedelta(days=now.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ).timestamp()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
-
-    daily = 0.0
-    weekly = 0.0
-    monthly = 0.0
-
-    with _metrics_lock:
-        for entry in metrics_store['cost']:
-            ts = entry.get('timestamp', 0)
-            usd = entry.get('usd', 0)
-            if ts >= month_start:
-                monthly += usd
-                if ts >= week_start:
-                    weekly += usd
-                    if ts >= today_start:
-                        daily += usd
-
-    return round(daily, 6), round(weekly, 6), round(monthly, 6)
-
-
-def _budget_check():
-    """Check budget limits and fire alerts/auto-pause as needed."""
-    global _budget_paused, _budget_paused_at, _budget_paused_reason
-
-    with _budget_lock:
-        cfg = _get_budget_config()
-
-    daily, weekly, monthly = _get_period_costs()
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    week_key = datetime.now().strftime('%Y-W%W')
-    month_key = datetime.now().strftime('%Y-%m')
-
-    alerts_sent = cfg.get('alerts_sent', {})
-    warn_pct = cfg.get('warn_at_pct', 80) / 100.0
-    changed = False
-    pause_reasons = []
-
-    checks = [
-        ('daily', cfg.get('daily_limit_usd', 0), daily, today_str),
-        ('weekly', cfg.get('weekly_limit_usd', 0), weekly, week_key),
-        ('monthly', cfg.get('monthly_limit_usd', 0), monthly, month_key),
-    ]
-
-    for period, limit, spent, period_key in checks:
-        if limit <= 0:
-            continue
-
-        warn_key = f'{period}_warning_{period_key}'
-        crit_key = f'{period}_critical_{period_key}'
-
-        # Critical (100%)
-        if spent >= limit and crit_key not in alerts_sent:
-            alerts_sent[crit_key] = time.time()
-            changed = True
-            msg = f'Budget EXCEEDED: {period} spend ${spent:.2f} >= limit ${limit:.2f}'
-            _send_budget_alert('critical', period, spent, limit, msg, cfg)
-            if cfg.get('auto_pause_enabled'):
-                pause_reasons.append(msg)
-
-        # Warning (warn_at_pct%)
-        elif spent >= limit * warn_pct and warn_key not in alerts_sent:
-            alerts_sent[warn_key] = time.time()
-            changed = True
-            pct_val = int(warn_pct * 100)
-            msg = f'Budget warning: {period} spend ${spent:.2f} ({pct_val}% of ${limit:.2f})'
-            _send_budget_alert('warning', period, spent, limit, msg, cfg)
-
-    if pause_reasons and not _budget_paused:
-        _budget_paused = True
-        _budget_paused_at = time.time()
-        _budget_paused_reason = pause_reasons[0]
-        cfg['auto_pause_triggered'] = True
-        changed = True
-
-    if changed:
-        cfg['alerts_sent'] = alerts_sent
-        with _budget_lock:
-            _save_budget_config(cfg)
-
-
-def _send_budget_alert(level, period, spent, limit, message, cfg):
-    """Send a budget alert via Telegram if configured."""
-    if not cfg.get('telegram_enabled'):
-        return
-    token = cfg.get('telegram_bot_token', '').strip()
-    chat_id = cfg.get('telegram_chat_id', '').strip()
-    if not token or not chat_id:
-        return
-
-    icon = '\U0001f6a8' if level == 'critical' else '\u26a0\ufe0f'
-    text = (
-        f'{icon} *ClawMetry Budget Alert*\n\n'
-        f'*Level:* {level.upper()}\n'
-        f'*Period:* {period}\n'
-        f'*Spent:* ${spent:.2f}\n'
-        f'*Limit:* ${limit:.2f}\n'
-        f'*Usage:* {(spent/limit*100):.0f}%\n'
-    )
-    if level == 'critical' and cfg.get('auto_pause_enabled'):
-        text += '\n*Auto-pause activated.* Agent OTLP intake is paused.'
-
-    try:
-        import urllib.request
-        url = f'https://api.telegram.org/bot{token}/sendMessage'
-        payload = json.dumps({
-            'chat_id': chat_id,
-            'text': text,
-            'parse_mode': 'Markdown',
-        }).encode()
-        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        print(f"Warning: Telegram alert failed: {e}")
 
 
 def _metrics_flush_loop():
@@ -540,6 +362,8 @@ def _get_budget_config():
         'auto_pause_enabled': False,
         'auto_pause_threshold_pct': 100,
         'warning_threshold_pct': 80,
+        'telegram_bot_token': '',
+        'telegram_chat_id': '',
     }
     try:
         with _fleet_db_lock:
@@ -752,7 +576,29 @@ def _fire_alert(rule_id, alert_type, message, channels=None):
 
 
 def _send_telegram_alert(message):
-    """Send alert via Telegram through the gateway."""
+    """Send alert via direct Telegram API (preferred) or gateway fallback."""
+    # Try direct Telegram API first (using budget config)
+    try:
+        cfg = _get_budget_config()
+        token = str(cfg.get('telegram_bot_token', '')).strip()
+        chat_id = str(cfg.get('telegram_chat_id', '')).strip()
+        if token and chat_id:
+            import urllib.request
+            url = f'https://api.telegram.org/bot{token}/sendMessage'
+            payload = json.dumps({
+                'chat_id': chat_id,
+                'text': f'[ClawMetry Alert] {message}',
+                'parse_mode': 'Markdown',
+            }).encode()
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={'Content-Type': 'application/json'},
+            )
+            urllib.request.urlopen(req, timeout=10)
+            return
+    except Exception as e:
+        print(f"Warning: Direct Telegram alert failed: {e}")
+    # Fallback: send through gateway
     try:
         _gw_invoke('message', {
             'action': 'send',
@@ -2292,6 +2138,7 @@ function clawmetryLogout(){
     <div id="budget-modal-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--border-primary);margin-bottom:16px;">
       <div class="modal-tab active" onclick="switchBudgetTab('limits',this)">Budget Limits</div>
       <div class="modal-tab" onclick="switchBudgetTab('alerts',this)">Alert Rules</div>
+      <div class="modal-tab" onclick="switchBudgetTab('telegram',this)">Telegram</div>
       <div class="modal-tab" onclick="switchBudgetTab('history',this)">History</div>
     </div>
     <!-- Budget Limits Tab -->
@@ -2348,6 +2195,27 @@ function clawmetryLogout(){
         </div>
       </div>
       <div id="alert-rules-list" style="font-size:13px;color:var(--text-secondary);">Loading...</div>
+    </div>
+    <!-- Telegram Tab -->
+    <div id="budget-tab-telegram" style="display:none;">
+      <div style="display:grid;gap:12px;">
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">
+          Configure direct Telegram notifications for budget alerts. Create a bot via <a href="https://t.me/BotFather" target="_blank" style="color:var(--text-accent);">@BotFather</a> and get your chat ID.
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Bot Token</label>
+          <input id="tg-bot-token" type="password" placeholder="123456:ABC-DEF..." style="width:100%;padding:8px 12px;border:1px solid var(--border-primary);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Chat ID</label>
+          <input id="tg-chat-id" type="text" placeholder="-100123456789" style="width:100%;padding:8px 12px;border:1px solid var(--border-primary);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;">
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="saveTelegramConfig()" style="background:var(--bg-accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;">Save</button>
+          <button onclick="testTelegram()" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;">Send Test</button>
+        </div>
+        <div id="tg-status" style="font-size:12px;color:var(--text-muted);"></div>
+      </div>
     </div>
     <!-- History Tab -->
     <div id="budget-tab-history" style="display:none;">
@@ -2770,11 +2638,12 @@ function openBudgetModal() {
 function switchBudgetTab(tab, el) {
   document.querySelectorAll('#budget-modal-tabs .modal-tab').forEach(function(t){t.classList.remove('active');});
   if(el) el.classList.add('active');
-  ['limits','alerts','history'].forEach(function(t){
+  ['limits','alerts','telegram','history'].forEach(function(t){
     var d = document.getElementById('budget-tab-'+t);
     if(d) d.style.display = t===tab ? 'block' : 'none';
   });
   if(tab==='alerts') loadAlertRules();
+  if(tab==='telegram') loadTelegramConfig();
   if(tab==='history') loadAlertHistory();
 }
 
@@ -2939,6 +2808,50 @@ async function ackAllAlerts() {
 // Check alerts every 30s
 setInterval(checkActiveAlerts, 30000);
 setTimeout(checkActiveAlerts, 3000);
+
+// === Telegram Config Functions ===
+async function loadTelegramConfig() {
+  try {
+    var cfg = await fetch('/api/budget/config').then(function(r){return r.json();});
+    var tokenEl = document.getElementById('tg-bot-token');
+    var chatEl = document.getElementById('tg-chat-id');
+    if(cfg.telegram_bot_token) tokenEl.value = cfg.telegram_bot_token;
+    if(cfg.telegram_chat_id) chatEl.value = cfg.telegram_chat_id;
+    var statusEl = document.getElementById('tg-status');
+    if(cfg.telegram_bot_token && cfg.telegram_chat_id) {
+      statusEl.innerHTML = '<span style="color:var(--text-success);">Configured</span>';
+    } else {
+      statusEl.innerHTML = '<span style="color:var(--text-muted);">Not configured</span>';
+    }
+  } catch(e) {}
+}
+
+async function saveTelegramConfig() {
+  var token = document.getElementById('tg-bot-token').value.trim();
+  var chatId = document.getElementById('tg-chat-id').value.trim();
+  await fetch('/api/budget/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({telegram_bot_token: token, telegram_chat_id: chatId})
+  });
+  document.getElementById('tg-status').innerHTML = '<span style="color:var(--text-success);">Saved!</span>';
+}
+
+async function testTelegram() {
+  var statusEl = document.getElementById('tg-status');
+  statusEl.innerHTML = '<span style="color:var(--text-muted);">Sending...</span>';
+  try {
+    var r = await fetch('/api/budget/test-telegram', {method: 'POST'});
+    var data = await r.json();
+    if(data.ok) {
+      statusEl.innerHTML = '<span style="color:var(--text-success);">Test sent!</span>';
+    } else {
+      statusEl.innerHTML = '<span style="color:var(--text-error);">' + escHtml(data.error || 'Failed') + '</span>';
+    }
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:var(--text-error);">Request failed</span>';
+  }
+}
 
 function switchTab(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -7628,112 +7541,6 @@ def api_otel_status():
     })
 
 
-# ── Budget API Routes ────────────────────────────────────────────────────
-
-@app.route('/api/budget', methods=['GET'])
-def api_budget_get():
-    """Return budget config and current spending."""
-    cfg = _get_budget_config()
-    daily, weekly, monthly = _get_period_costs()
-    # Redact telegram token for display (show last 4 chars)
-    token_display = ''
-    raw_token = cfg.get('telegram_bot_token', '')
-    if raw_token:
-        token_display = '****' + raw_token[-4:] if len(raw_token) > 4 else '****'
-    return jsonify({
-        'config': {
-            'daily_limit_usd': cfg['daily_limit_usd'],
-            'weekly_limit_usd': cfg['weekly_limit_usd'],
-            'monthly_limit_usd': cfg['monthly_limit_usd'],
-            'warn_at_pct': cfg['warn_at_pct'],
-            'auto_pause_enabled': cfg['auto_pause_enabled'],
-            'auto_pause_triggered': cfg.get('auto_pause_triggered', False),
-            'telegram_enabled': cfg['telegram_enabled'],
-            'telegram_chat_id': cfg.get('telegram_chat_id', ''),
-            'telegram_token_set': bool(raw_token),
-            'telegram_token_display': token_display,
-        },
-        'spending': {
-            'daily': round(daily, 4),
-            'weekly': round(weekly, 4),
-            'monthly': round(monthly, 4),
-        },
-        'paused': _budget_paused,
-        'paused_at': _budget_paused_at,
-        'paused_reason': _budget_paused_reason,
-    })
-
-
-@app.route('/api/budget', methods=['POST'])
-def api_budget_post():
-    """Update budget settings."""
-    body = request.get_json(force=True, silent=True) or {}
-    with _budget_lock:
-        cfg = _get_budget_config()
-        allowed = [
-            'daily_limit_usd', 'weekly_limit_usd', 'monthly_limit_usd',
-            'warn_at_pct', 'auto_pause_enabled',
-            'telegram_bot_token', 'telegram_chat_id', 'telegram_enabled',
-        ]
-        for key in allowed:
-            if key in body:
-                cfg[key] = body[key]
-        # Validate numeric fields
-        for nk in ('daily_limit_usd', 'weekly_limit_usd', 'monthly_limit_usd'):
-            try:
-                cfg[nk] = max(0.0, float(cfg[nk]))
-            except (TypeError, ValueError):
-                cfg[nk] = 0.0
-        try:
-            cfg['warn_at_pct'] = max(1, min(99, int(cfg['warn_at_pct'])))
-        except (TypeError, ValueError):
-            cfg['warn_at_pct'] = 80
-        _save_budget_config(cfg)
-    return jsonify({'ok': True})
-
-
-@app.route('/api/budget/reset-pause', methods=['POST'])
-def api_budget_reset_pause():
-    """Clear auto-pause state so OTLP intake resumes."""
-    global _budget_paused, _budget_paused_at, _budget_paused_reason
-    _budget_paused = False
-    _budget_paused_at = 0
-    _budget_paused_reason = ''
-    with _budget_lock:
-        cfg = _get_budget_config()
-        cfg['auto_pause_triggered'] = False
-        # Clear critical alerts so they can re-fire if limit hit again
-        cfg['alerts_sent'] = {
-            k: v for k, v in cfg.get('alerts_sent', {}).items()
-            if 'critical' not in k
-        }
-        _save_budget_config(cfg)
-    return jsonify({'ok': True, 'paused': False})
-
-
-@app.route('/api/budget/test-telegram', methods=['POST'])
-def api_budget_test_telegram():
-    """Send a test Telegram notification."""
-    cfg = _get_budget_config()
-    token = cfg.get('telegram_bot_token', '').strip()
-    chat_id = cfg.get('telegram_chat_id', '').strip()
-    if not token or not chat_id:
-        return jsonify({'ok': False, 'error': 'Telegram bot token and chat ID required'}), 400
-    try:
-        import urllib.request
-        url = f'https://api.telegram.org/bot{token}/sendMessage'
-        payload = json.dumps({
-            'chat_id': chat_id,
-            'text': '\u2705 *ClawMetry Budget Alerts* - Test notification successful!',
-            'parse_mode': 'Markdown',
-        }).encode()
-        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
-        resp = urllib.request.urlopen(req, timeout=10)
-        return jsonify({'ok': True})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
 # ── Multi-Node Fleet API Routes ──────────────────────────────────────────
 
 FLEET_HTML = r"""
@@ -8019,7 +7826,8 @@ def api_budget_config():
         data = request.get_json(silent=True) or {}
         allowed = ['daily_limit', 'weekly_limit', 'monthly_limit',
                     'auto_pause_enabled', 'auto_pause_threshold_pct',
-                    'warning_threshold_pct']
+                    'warning_threshold_pct',
+                    'telegram_bot_token', 'telegram_chat_id']
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             return jsonify({'error': 'No valid fields provided'}), 400
@@ -8050,6 +7858,29 @@ def api_budget_resume():
     """Resume the gateway after budget pause."""
     _resume_gateway()
     return jsonify({'ok': True, 'paused': False})
+
+
+@app.route('/api/budget/test-telegram', methods=['POST'])
+def api_budget_test_telegram():
+    """Send a test Telegram notification using saved config."""
+    cfg = _get_budget_config()
+    token = str(cfg.get('telegram_bot_token', '')).strip()
+    chat_id = str(cfg.get('telegram_chat_id', '')).strip()
+    if not token or not chat_id:
+        return jsonify({'ok': False, 'error': 'Set Telegram bot token and chat ID first'}), 400
+    try:
+        import urllib.request
+        url = f'https://api.telegram.org/bot{token}/sendMessage'
+        payload = json.dumps({
+            'chat_id': chat_id,
+            'text': '\u2705 *ClawMetry Budget Alerts* - Test notification successful!',
+            'parse_mode': 'Markdown',
+        }).encode()
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        urllib.request.urlopen(req, timeout=10)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/alerts/rules', methods=['GET', 'POST'])
