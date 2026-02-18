@@ -29,6 +29,18 @@ import select
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template_string, request, jsonify, Response, make_response
 
+# History / time-series module
+try:
+    from history import HistoryDB, HistoryCollector
+    _HAS_HISTORY = True
+except ImportError:
+    _HAS_HISTORY = False
+    HistoryDB = None
+    HistoryCollector = None
+
+_history_db = None
+_history_collector = None
+
 # Optional: OpenTelemetry protobuf support for OTLP receiver
 _HAS_OTEL_PROTO = False
 try:
@@ -1466,6 +1478,9 @@ DASHBOARD_HTML = r"""
   .nav-tab:hover { background: var(--bg-hover); color: var(--text-secondary); }
   .nav-tab.active { background: var(--bg-accent); color: #ffffff; border-color: var(--bg-accent); }
   .nav-tab:active { transform: scale(0.98); }
+  .time-btn { padding: 4px 12px; border-radius: 6px; background: var(--bg-secondary); border: 1px solid var(--border-primary); color: var(--text-tertiary); cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
+  .time-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  .time-btn.active { background: var(--bg-accent); color: #fff; border-color: var(--bg-accent); }
 
   .page { display: none; padding: 16px 20px; max-width: 1200px; margin: 0 auto; }
   #page-overview { max-width: 1600px; padding: 8px 12px; }
@@ -2028,6 +2043,8 @@ DASHBOARD_HTML = r"""
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body data-theme="light" class="booting"><script>var t=localStorage.getItem('openclaw-theme');if(t==='dark')document.body.setAttribute('data-theme','dark');</script>
 <!-- Login overlay -->
@@ -2134,6 +2151,7 @@ function clawmetryLogout(){
     <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
     <div class="nav-tab" onclick="switchTab('crons')">Crons</div>
     <div class="nav-tab" onclick="switchTab('memory')">Memory</div>
+    <div class="nav-tab" onclick="switchTab('history')">History</div>
   </div>
 </div>
 
@@ -2486,6 +2504,63 @@ function clawmetryLogout(){
   <div id="transcript-viewer" style="display:none">
     <div class="transcript-viewer-meta" id="transcript-meta"></div>
     <div class="chat-messages" id="transcript-messages"></div>
+  </div>
+</div>
+
+<!-- HISTORY -->
+<div class="page" id="page-history">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+    <h2 style="font-size:18px;font-weight:700;color:var(--text-primary);margin:0;">&#128202; History</h2>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;" id="time-range-picker">
+      <button class="time-btn active" onclick="setTimeRange(3600,this)">1h</button>
+      <button class="time-btn" onclick="setTimeRange(21600,this)">6h</button>
+      <button class="time-btn" onclick="setTimeRange(86400,this)">24h</button>
+      <button class="time-btn" onclick="setTimeRange(604800,this)">7d</button>
+      <button class="time-btn" onclick="setTimeRange(2592000,this)">30d</button>
+      <button class="time-btn" onclick="showCustomRange()">Custom</button>
+    </div>
+    <div id="custom-range-picker" style="display:none;gap:8px;align-items:center;">
+      <input type="datetime-local" id="history-from" style="padding:4px 8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;">
+      <span style="color:var(--text-muted);">to</span>
+      <input type="datetime-local" id="history-to" style="padding:4px 8px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;">
+      <button class="time-btn" onclick="applyCustomRange()">Apply</button>
+    </div>
+    <div id="history-status" style="font-size:12px;color:var(--text-muted);margin-left:auto;"></div>
+  </div>
+
+  <!-- Token Usage Chart -->
+  <div class="card" style="margin-bottom:16px;padding:16px;">
+    <h3 style="font-size:14px;font-weight:600;color:var(--text-primary);margin:0 0 12px 0;">Token Usage Over Time</h3>
+    <canvas id="history-tokens-chart" height="200"></canvas>
+  </div>
+
+  <!-- Cost Chart -->
+  <div class="card" style="margin-bottom:16px;padding:16px;">
+    <h3 style="font-size:14px;font-weight:600;color:var(--text-primary);margin:0 0 12px 0;">Cost Over Time</h3>
+    <canvas id="history-cost-chart" height="180"></canvas>
+  </div>
+
+  <!-- Sessions & Crons side by side -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card" style="padding:16px;">
+      <h3 style="font-size:14px;font-weight:600;color:var(--text-primary);margin:0 0 12px 0;">Active Sessions</h3>
+      <canvas id="history-sessions-chart" height="160"></canvas>
+    </div>
+    <div class="card" style="padding:16px;">
+      <h3 style="font-size:14px;font-weight:600;color:var(--text-primary);margin:0 0 12px 0;">Cron Runs</h3>
+      <div id="history-cron-table" style="max-height:300px;overflow-y:auto;font-size:13px;color:var(--text-secondary);">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Snapshot drilldown modal -->
+  <div id="snapshot-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
+    <div style="background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:16px;width:90%;max-width:800px;max-height:80vh;padding:24px;overflow-y:auto;box-shadow:0 25px 50px rgba(0,0,0,0.25);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0;" id="snapshot-title">Snapshot</h3>
+        <button onclick="document.getElementById('snapshot-modal').style.display='none'" style="background:var(--button-bg);border:1px solid var(--border-primary);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:18px;color:var(--text-tertiary);">&times;</button>
+      </div>
+      <pre id="snapshot-content" style="font-size:12px;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:8px;padding:16px;overflow-x:auto;white-space:pre-wrap;color:var(--text-secondary);max-height:60vh;"></pre>
+    </div>
   </div>
 </div>
 
@@ -2925,6 +3000,7 @@ function switchTab(name) {
   if (name === 'memory') loadMemory();
   if (name === 'transcripts') loadTranscripts();
   if (name === 'flow') initFlow();
+  if (name === 'history') loadHistory();
 }
 
 function exportUsageData() {
@@ -6744,6 +6820,190 @@ document.addEventListener('DOMContentLoaded', function() {
   initFlow();
   bootDashboard();
 });
+
+// ── History Tab ──────────────────────────────────────────────────────
+var _historyRange = 3600; // seconds
+var _historyFrom = null;
+var _historyTo = null;
+var _histTokensChart = null;
+var _histCostChart = null;
+var _histSessionsChart = null;
+
+function setTimeRange(seconds, btn) {
+  _historyRange = seconds;
+  _historyFrom = null;
+  _historyTo = null;
+  document.querySelectorAll('#time-range-picker .time-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('custom-range-picker').style.display = 'none';
+  loadHistory();
+}
+
+function showCustomRange() {
+  document.querySelectorAll('#time-range-picker .time-btn').forEach(b => b.classList.remove('active'));
+  var cp = document.getElementById('custom-range-picker');
+  cp.style.display = 'flex';
+  // Default to last 24h
+  var now = new Date();
+  var ago = new Date(now.getTime() - 86400000);
+  document.getElementById('history-to').value = now.toISOString().slice(0,16);
+  document.getElementById('history-from').value = ago.toISOString().slice(0,16);
+}
+
+function applyCustomRange() {
+  var from = document.getElementById('history-from').value;
+  var to = document.getElementById('history-to').value;
+  if (!from || !to) return;
+  _historyFrom = new Date(from).getTime() / 1000;
+  _historyTo = new Date(to).getTime() / 1000;
+  _historyRange = null;
+  loadHistory();
+}
+
+function _getHistoryParams() {
+  var now = Date.now() / 1000;
+  var from_ts, to_ts;
+  if (_historyRange) {
+    from_ts = now - _historyRange;
+    to_ts = now;
+  } else {
+    from_ts = _historyFrom;
+    to_ts = _historyTo;
+  }
+  var span = to_ts - from_ts;
+  var interval = 'minute';
+  if (span > 86400) interval = 'hour';
+  if (span > 604800) interval = 'day';
+  return {from: from_ts, to: to_ts, interval: interval};
+}
+
+function _chartOpts(title, yLabel) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 }, color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#666' } },
+      tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { size: 12 }, bodyFont: { size: 11 } }
+    },
+    scales: {
+      x: { type: 'time', time: { tooltipFormat: 'MMM d, HH:mm' }, grid: { display: false }, ticks: { font: { size: 10 }, color: getComputedStyle(document.body).getPropertyValue('--text-muted') || '#999' } },
+      y: { beginAtZero: true, grid: { color: 'rgba(128,128,128,0.1)' }, ticks: { font: { size: 10 }, color: getComputedStyle(document.body).getPropertyValue('--text-muted') || '#999' }, title: { display: !!yLabel, text: yLabel || '', font: { size: 11 } } }
+    },
+    onClick: function(evt, elems) {
+      if (elems.length > 0) {
+        var idx = elems[0].index;
+        var ds = this.data.datasets[elems[0].datasetIndex];
+        if (ds && ds.data[idx]) {
+          var ts = ds.data[idx].x;
+          showSnapshot(ts instanceof Date ? ts.getTime()/1000 : ts/1000);
+        }
+      }
+    }
+  };
+}
+
+function _destroyChart(chart) {
+  if (chart) { try { chart.destroy(); } catch(e){} }
+  return null;
+}
+
+async function loadHistory() {
+  var p = _getHistoryParams();
+  var status = document.getElementById('history-status');
+  status.textContent = 'Loading...';
+
+  try {
+    // Fetch token metrics
+    var [tokIn, tokOut, costData, sessData, cronData] = await Promise.all([
+      fetch('/api/history/metrics?metric=tokens_in_total&from='+p.from+'&to='+p.to+'&interval='+p.interval).then(r=>r.json()),
+      fetch('/api/history/metrics?metric=tokens_out_total&from='+p.from+'&to='+p.to+'&interval='+p.interval).then(r=>r.json()),
+      fetch('/api/history/metrics?metric=cost_total&from='+p.from+'&to='+p.to+'&interval='+p.interval).then(r=>r.json()),
+      fetch('/api/history/metrics?metric=sessions_active&from='+p.from+'&to='+p.to+'&interval='+p.interval).then(r=>r.json()),
+      fetch('/api/history/crons?from='+p.from+'&to='+p.to).then(r=>r.json()),
+    ]);
+
+    // Token chart
+    _histTokensChart = _destroyChart(_histTokensChart);
+    var tokInPts = (tokIn.data||[]).map(function(d){ return {x: new Date((d.bucket_ts||d.timestamp)*1000), y: d.avg_val||d.metric_value||0}; });
+    var tokOutPts = (tokOut.data||[]).map(function(d){ return {x: new Date((d.bucket_ts||d.timestamp)*1000), y: d.avg_val||d.metric_value||0}; });
+    var ctx1 = document.getElementById('history-tokens-chart').getContext('2d');
+    _histTokensChart = new Chart(ctx1, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Input Tokens', data: tokInPts, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.3, pointRadius: 1 },
+          { label: 'Output Tokens', data: tokOutPts, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.3, pointRadius: 1 }
+        ]
+      },
+      options: _chartOpts('Token Usage', 'Tokens')
+    });
+
+    // Cost chart
+    _histCostChart = _destroyChart(_histCostChart);
+    var costPts = (costData.data||[]).map(function(d){ return {x: new Date((d.bucket_ts||d.timestamp)*1000), y: d.avg_val||d.metric_value||0}; });
+    var ctx2 = document.getElementById('history-cost-chart').getContext('2d');
+    _histCostChart = new Chart(ctx2, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Total Cost ($)', data: costPts, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.3, pointRadius: 1 }
+        ]
+      },
+      options: _chartOpts('Cost', 'USD')
+    });
+
+    // Sessions chart
+    _histSessionsChart = _destroyChart(_histSessionsChart);
+    var sessPts = (sessData.data||[]).map(function(d){ return {x: new Date((d.bucket_ts||d.timestamp)*1000), y: d.avg_val||d.metric_value||0}; });
+    var ctx3 = document.getElementById('history-sessions-chart').getContext('2d');
+    _histSessionsChart = new Chart(ctx3, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Active Sessions', data: sessPts, borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.1)', fill: true, tension: 0.3, pointRadius: 2, stepped: 'before' }
+        ]
+      },
+      options: _chartOpts('Sessions', 'Count')
+    });
+
+    // Cron runs table
+    var runs = cronData.data || [];
+    var cronHtml = '';
+    if (runs.length === 0) {
+      cronHtml = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No cron runs in this time range</div>';
+    } else {
+      cronHtml = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border-primary);"><th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-muted);">Time</th><th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-muted);">Job</th><th style="text-align:left;padding:4px 8px;font-size:11px;color:var(--text-muted);">Status</th><th style="text-align:right;padding:4px 8px;font-size:11px;color:var(--text-muted);">Duration</th></tr></thead><tbody>';
+      runs.slice(-100).reverse().forEach(function(r) {
+        var t = new Date(r.timestamp * 1000).toLocaleString();
+        var statusColor = r.status === 'success' || r.status === 'completed' ? '#10b981' : (r.status === 'error' || r.status === 'failed' ? '#ef4444' : '#f59e0b');
+        var dur = r.duration_ms ? (r.duration_ms/1000).toFixed(1)+'s' : '—';
+        cronHtml += '<tr style="border-bottom:1px solid var(--border-secondary);"><td style="padding:4px 8px;font-size:12px;">'+t+'</td><td style="padding:4px 8px;font-size:12px;">'+((r.job_name||r.job_id)||'—')+'</td><td style="padding:4px 8px;font-size:12px;"><span style="color:'+statusColor+';font-weight:600;">&#9679;</span> '+(r.status||'—')+'</td><td style="padding:4px 8px;font-size:12px;text-align:right;">'+dur+'</td></tr>';
+      });
+      cronHtml += '</tbody></table>';
+    }
+    document.getElementById('history-cron-table').innerHTML = cronHtml;
+
+    // Update status
+    var totalPts = (tokIn.data||[]).length + (costData.data||[]).length;
+    status.textContent = totalPts > 0 ? totalPts + ' data points' : 'No data yet — collector polls every 60s';
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    console.error('History load error:', e);
+  }
+}
+
+async function showSnapshot(ts) {
+  try {
+    var r = await fetch('/api/history/snapshot/' + ts);
+    var data = await r.json();
+    document.getElementById('snapshot-title').textContent = 'Snapshot @ ' + new Date(ts * 1000).toLocaleString();
+    document.getElementById('snapshot-content').textContent = JSON.stringify(data.raw_json || data, null, 2);
+    document.getElementById('snapshot-modal').style.display = 'flex';
+  } catch(e) {
+    console.error('Snapshot error:', e);
+  }
+}
 </script>
 </div> <!-- end zoom-wrapper -->
 
@@ -8338,6 +8598,74 @@ def api_alert_ack(alert_id):
 def api_alerts_active():
     """Get active (unacknowledged) alerts."""
     return jsonify({'alerts': _get_active_alerts()})
+
+
+# ── History / Time-Series API ────────────────────────────────────────────
+
+@app.route('/api/history/metrics')
+def api_history_metrics():
+    """Query historical metrics. Params: metric, from, to, interval."""
+    if not _history_db:
+        return jsonify({'error': 'History not available', 'data': []}), 200
+    metric = request.args.get('metric', 'tokens_in_total')
+    from_ts = request.args.get('from', type=float, default=time.time() - 3600)
+    to_ts = request.args.get('to', type=float, default=time.time())
+    interval = request.args.get('interval', None)
+    data = _history_db.query_metrics(metric, from_ts, to_ts, interval)
+    return jsonify({'data': data, 'metric': metric})
+
+
+@app.route('/api/history/metrics/list')
+def api_history_metrics_list():
+    """List available metric names."""
+    if not _history_db:
+        return jsonify({'metrics': []})
+    return jsonify({'metrics': _history_db.get_available_metrics()})
+
+
+@app.route('/api/history/sessions')
+def api_history_sessions():
+    """Query historical session data."""
+    if not _history_db:
+        return jsonify({'data': []})
+    from_ts = request.args.get('from', type=float, default=time.time() - 3600)
+    to_ts = request.args.get('to', type=float, default=time.time())
+    session_key = request.args.get('session', None)
+    data = _history_db.query_sessions(from_ts, to_ts, session_key)
+    return jsonify({'data': data})
+
+
+@app.route('/api/history/crons')
+def api_history_crons():
+    """Query historical cron run data."""
+    if not _history_db:
+        return jsonify({'data': []})
+    from_ts = request.args.get('from', type=float, default=time.time() - 3600)
+    to_ts = request.args.get('to', type=float, default=time.time())
+    job_id = request.args.get('job_id', None)
+    data = _history_db.query_crons(from_ts, to_ts, job_id)
+    return jsonify({'data': data})
+
+
+@app.route('/api/history/snapshot/<float:timestamp>')
+def api_history_snapshot(timestamp):
+    """Get the snapshot closest to a given timestamp."""
+    if not _history_db:
+        return jsonify({'error': 'History not available'}), 200
+    snap = _history_db.query_snapshot(timestamp)
+    if snap:
+        return jsonify(snap)
+    return jsonify({'error': 'No snapshot found'}), 404
+
+
+@app.route('/api/history/stats')
+def api_history_stats():
+    """Get history database stats."""
+    if not _history_db:
+        return jsonify({'enabled': False})
+    stats = _history_db.get_stats()
+    stats['enabled'] = True
+    return jsonify(stats)
 
 
 # ── Enhanced Cost Tracking Utilities ─────────────────────────────────────
@@ -11071,6 +11399,14 @@ def main():
     _load_metrics_from_disk()
     _start_metrics_flush_thread()
 
+    # Initialize history/time-series system
+    global _history_db, _history_collector
+    if _HAS_HISTORY:
+        history_db_path = os.environ.get('CLAWMETRY_HISTORY_DB', None)
+        _history_db = HistoryDB(history_db_path)
+        _history_collector = HistoryCollector(_history_db, _gw_invoke)
+        _history_collector.start()
+
     # Fleet multi-node setup
     global FLEET_API_KEY, FLEET_DB_PATH
     if args.fleet_api_key:
@@ -11094,6 +11430,10 @@ def main():
     print(f"  SSE Limits: {SSE_MAX_SECONDS}s max duration · logs {MAX_LOG_STREAM_CLIENTS} clients · health {MAX_HEALTH_STREAM_CLIENTS} clients")
     print(f"  Fleet DB:   {_fleet_db_path()}")
     print(f"  Fleet Auth: {'Enabled (key set)' if FLEET_API_KEY else 'Open (no key - set --fleet-api-key for production)'}")
+    if _HAS_HISTORY and _history_db:
+        print(f"  History DB: {_history_db.db_path}")
+    else:
+        print(f"  History:    Disabled (history.py not found)")
     print()
 
     # Validate configuration and show warnings/tips for new users
