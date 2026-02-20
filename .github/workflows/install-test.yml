@@ -1,9 +1,9 @@
 name: Test Install Script
 on:
   push:
-    paths: [install.sh, install.ps1]
+    paths: [install.sh, install.ps1, install.cmd]
   pull_request:
-    paths: [install.sh, install.ps1]
+    paths: [install.sh, install.ps1, install.cmd]
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       - name: Verify clawmetry binary
         run: clawmetry --version
 
-  test-windows:
+  test-windows-ps:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run install script
+      - name: Run PowerShell install
         shell: pwsh
         run: .\install.ps1
       - name: Verify clawmetry binary
@@ -43,6 +43,21 @@ jobs:
         run: |
           $env:PATH = "$env:LOCALAPPDATA\clawmetry\Scripts;$env:PATH"
           clawmetry --version
+
+  test-windows-cmd:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run CMD install
+        shell: cmd
+        run: install.cmd
+      - name: Verify clawmetry binary
+        shell: cmd
+        run: clawmetry --version
 
   shellcheck:
     runs-on: ubuntu-latest
