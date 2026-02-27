@@ -1665,6 +1665,21 @@ DASHBOARD_HTML = r"""
   #node-telegram rect { fill: #2f6feb !important; stroke: #1f4fb8 !important; }
   #node-signal rect { fill: #0f766e !important; stroke: #115e59 !important; }
   #node-whatsapp rect { fill: #2f9e44 !important; stroke: #237738 !important; }
+  #node-imessage rect { fill: #34C759 !important; stroke: #248A3D !important; }
+  #node-discord rect { fill: #5865F2 !important; stroke: #4752C4 !important; }
+  #node-slack rect { fill: #4A154B !important; stroke: #350e36 !important; }
+  #node-irc rect { fill: #6B7280 !important; stroke: #4B5563 !important; }
+  #node-webchat rect { fill: #0EA5E9 !important; stroke: #0369A1 !important; }
+  #node-googlechat rect { fill: #1A73E8 !important; stroke: #1557B0 !important; }
+  #node-bluebubbles rect { fill: #1C6EF3 !important; stroke: #1558C0 !important; }
+  #node-msteams rect { fill: #6264A7 !important; stroke: #464775 !important; }
+  #node-matrix rect { fill: #0DBD8B !important; stroke: #0A9E74 !important; }
+  #node-mattermost rect { fill: #0058CC !important; stroke: #0047A3 !important; }
+  #node-line rect { fill: #00B900 !important; stroke: #009900 !important; }
+  #node-nostr rect { fill: #8B5CF6 !important; stroke: #6D28D9 !important; }
+  #node-twitch rect { fill: #9146FF !important; stroke: #772CE8 !important; }
+  #node-feishu rect { fill: #3370FF !important; stroke: #2050CC !important; }
+  #node-zalo rect { fill: #0068FF !important; stroke: #0050CC !important; }
   #node-gateway rect { fill: #334155 !important; stroke: #1f2937 !important; }
   #node-brain rect { fill: #a63a16 !important; stroke: #7c2d12 !important; }
   #brain-model-label { fill: #fde68a !important; }
@@ -1980,6 +1995,18 @@ DASHBOARD_HTML = r"""
   .tg-bubble .tg-time { font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: right; }
   .tg-bubble .tg-text { white-space: pre-wrap; }
   .tg-load-more { text-align: center; padding: 10px; }
+  /* iMessage styles */
+  .imsg-stats { display: flex; gap: 16px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 8px; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
+  .imsg-stats .in { color: #007AFF; } .imsg-stats .out { color: #34C759; }
+  .imsg-chat { display: flex; flex-direction: column; gap: 8px; }
+  .imsg-bubble { max-width: 85%; padding: 10px 14px; border-radius: 18px; font-size: 13px; line-height: 1.5; word-wrap: break-word; position: relative; }
+  .imsg-bubble.in { background: #1e2a3f; border: 1px solid #2a4a7a; color: #b0d0ff; align-self: flex-start; border-bottom-left-radius: 4px; }
+  .imsg-bubble.out { background: #1a3a2a; border: 1px solid #2a6a3a; color: #b0ffb0; align-self: flex-end; border-bottom-right-radius: 4px; }
+  [data-theme="light"] .imsg-bubble.in { background: #e1e8f5; border-color: #93c5fd; color: #1e3a5f; }
+  [data-theme="light"] .imsg-bubble.out { background: #d4f5d4; border-color: #86efac; color: #14532d; }
+  .imsg-bubble .imsg-sender { font-size: 11px; font-weight: 700; margin-bottom: 2px; opacity: 0.7; }
+  .imsg-bubble .imsg-time { font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: right; }
+  .imsg-bubble .imsg-text { white-space: pre-wrap; }
   .tg-load-more button { background: var(--button-bg); border: 1px solid var(--border-primary); border-radius: 8px; padding: 6px 20px; color: var(--text-secondary); cursor: pointer; font-size: 13px; }
   .tg-load-more button:hover { background: var(--button-hover); }
   .comp-modal-footer { border-top: 1px solid var(--border-primary); padding: 10px 20px; font-size: 11px; color: var(--text-muted); }
@@ -2676,9 +2703,69 @@ function clawmetryLogout(){
         <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#2E8B7A" stroke="#1B6B5A" stroke-width="2" filter="url(#dropShadow)"/>
         <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">📡 Signal</text>
       </g>
+      <g class="flow-node flow-node-channel" id="node-imessage" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#34C759" stroke="#248A3D" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💬 iMessage</text>
+      </g>
       <g class="flow-node flow-node-channel" id="node-whatsapp">
         <rect x="20" y="240" width="110" height="40" rx="10" ry="10" fill="#43A047" stroke="#2E7D32" stroke-width="2" filter="url(#dropShadow)"/>
         <text x="75" y="265" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💬 WA</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-discord" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#5865F2" stroke="#4752C4" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🎮 Discord</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-slack" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#4A154B" stroke="#350e36" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💼 Slack</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-irc" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#6B7280" stroke="#4B5563" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;"># IRC</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-webchat" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#0EA5E9" stroke="#0369A1" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🌐 WebChat</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-googlechat" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#1A73E8" stroke="#1557B0" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💬 GChat</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-bluebubbles" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#1C6EF3" stroke="#1558C0" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🍎 BB</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-msteams" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#6264A7" stroke="#464775" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">👔 Teams</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-matrix" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#0DBD8B" stroke="#0A9E74" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">[M] Matrix</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-mattermost" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#0058CC" stroke="#0047A3" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">⚓ MM</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-line" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#00B900" stroke="#009900" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💚 LINE</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-nostr" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#8B5CF6" stroke="#6D28D9" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">⚡ Nostr</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-twitch" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#9146FF" stroke="#772CE8" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🎮 Twitch</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-feishu" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#3370FF" stroke="#2050CC" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">🌸 Feishu</text>
+      </g>
+      <g class="flow-node flow-node-channel" id="node-zalo" style="display:none;">
+        <rect x="20" y="170" width="110" height="40" rx="10" ry="10" fill="#0068FF" stroke="#0050CC" stroke-width="2" filter="url(#dropShadow)"/>
+        <text x="75" y="195" style="font-size:13px;font-weight:700;fill:#ffffff;text-anchor:middle;">💬 Zalo</text>
       </g>
 
       <!-- Gateway -->
@@ -4924,53 +5011,79 @@ var flowInitDone = false;
 
 function hideUnconfiguredChannels(svgRoot) {
   // Hide channel nodes and their paths for unconfigured channels
+  // All known channels mapped to SVG slot paths
+  // Slot assignments: tg=slot1, sig=slot2(middle), wa=slot3
+  // Extra channels share slot2 paths and get dynamically repositioned
   var channelMap = {
-    'telegram': { node: 'node-telegram', paths: ['path-human-tg', 'path-tg-gw'] },
-    'signal':   { node: 'node-signal',   paths: ['path-human-sig', 'path-sig-gw'] },
-    'whatsapp': { node: 'node-whatsapp', paths: ['path-human-wa', 'path-wa-gw'] }
+    'telegram':    { node: 'node-telegram',    paths: ['path-human-tg',  'path-tg-gw'] },
+    'signal':      { node: 'node-signal',      paths: ['path-human-sig', 'path-sig-gw'] },
+    'whatsapp':    { node: 'node-whatsapp',    paths: ['path-human-wa',  'path-wa-gw'] },
+    'imessage':    { node: 'node-imessage',    paths: ['path-human-sig', 'path-sig-gw'] },
+    'discord':     { node: 'node-discord',     paths: ['path-human-sig', 'path-sig-gw'] },
+    'slack':       { node: 'node-slack',       paths: ['path-human-sig', 'path-sig-gw'] },
+    'irc':         { node: 'node-irc',         paths: ['path-human-sig', 'path-sig-gw'] },
+    'webchat':     { node: 'node-webchat',     paths: ['path-human-sig', 'path-sig-gw'] },
+    'googlechat':  { node: 'node-googlechat',  paths: ['path-human-sig', 'path-sig-gw'] },
+    'bluebubbles': { node: 'node-bluebubbles', paths: ['path-human-sig', 'path-sig-gw'] },
+    'msteams':     { node: 'node-msteams',     paths: ['path-human-sig', 'path-sig-gw'] },
+    'matrix':      { node: 'node-matrix',      paths: ['path-human-sig', 'path-sig-gw'] },
+    'mattermost':  { node: 'node-mattermost',  paths: ['path-human-sig', 'path-sig-gw'] },
+    'line':        { node: 'node-line',        paths: ['path-human-sig', 'path-sig-gw'] },
+    'nostr':       { node: 'node-nostr',       paths: ['path-human-sig', 'path-sig-gw'] },
+    'twitch':      { node: 'node-twitch',      paths: ['path-human-sig', 'path-sig-gw'] },
+    'feishu':      { node: 'node-feishu',      paths: ['path-human-sig', 'path-sig-gw'] },
+    'zalo':        { node: 'node-zalo',        paths: ['path-human-sig', 'path-sig-gw'] }
   };
+  // Priority order for slot assignment (up to 3 visible at a time)
+  var SLOT_ORDER = ['telegram', 'whatsapp', 'imessage', 'signal', 'discord', 'slack',
+                    'irc', 'webchat', 'googlechat', 'bluebubbles', 'msteams', 'matrix',
+                    'mattermost', 'line', 'nostr', 'twitch', 'feishu', 'zalo'];
   fetch('/api/channels').then(function(r){return r.json();}).then(function(d) {
     var active = d.channels || ['telegram', 'signal', 'whatsapp'];
-    var allChannels = ['telegram', 'signal', 'whatsapp'];
+    // Build display list: up to 3 channels, prioritized by SLOT_ORDER
+    var allChannels = SLOT_ORDER.filter(function(ch) { return active.indexOf(ch) !== -1; }).slice(0, 3);
     var hiddenCount = 0;
     allChannels.forEach(function(ch) {
+      var info = channelMap[ch];
+      if (!info) return;
+      var node = svgRoot.getElementById ? svgRoot.getElementById(info.node) : svgRoot.querySelector('#' + info.node);
       if (active.indexOf(ch) === -1) {
         hiddenCount++;
-        var info = channelMap[ch];
-        var node = svgRoot.getElementById ? svgRoot.getElementById(info.node) : svgRoot.querySelector('#' + info.node);
         if (node) node.style.display = 'none';
         info.paths.forEach(function(pid) {
           var p = svgRoot.getElementById ? svgRoot.getElementById(pid) : svgRoot.querySelector('#' + pid);
           if (p) p.style.display = 'none';
         });
+      } else {
+        // Explicitly show active channel nodes
+        if (node) node.style.display = '';
       }
     });
-    // Shift remaining visible channel nodes up to fill gaps
-    if (hiddenCount > 0) {
-      var visibleChannels = allChannels.filter(function(ch) { return active.indexOf(ch) !== -1; });
-      var yPositions = [120, 175, 230]; // Evenly spaced positions for 1-3 channels
-      if (visibleChannels.length === 1) yPositions = [175];
-      else if (visibleChannels.length === 2) yPositions = [130, 210];
-      visibleChannels.forEach(function(ch, i) {
-        var info = channelMap[ch];
-        var node = svgRoot.getElementById ? svgRoot.getElementById(info.node) : svgRoot.querySelector('#' + info.node);
-        if (!node) return;
-        var rect = node.querySelector('rect');
-        var text = node.querySelector('text');
-        var targetY = yPositions[i];
-        if (rect) { rect.setAttribute('y', targetY - 20); }
-        if (text) { text.setAttribute('y', targetY + 5); }
-        // Update paths from human to channel and channel to gateway
-        var humanPath = svgRoot.getElementById ? svgRoot.getElementById(info.paths[0]) : svgRoot.querySelector('#' + info.paths[0]);
-        if (humanPath) {
-          humanPath.setAttribute('d', 'M 60 56 C 60 ' + (targetY - 30) + ', 65 ' + (targetY - 15) + ', 75 ' + (targetY - 20));
-        }
-        var gwPath = svgRoot.getElementById ? svgRoot.getElementById(info.paths[1]) : svgRoot.querySelector('#' + info.paths[1]);
-        if (gwPath) {
-          gwPath.setAttribute('d', 'M 130 ' + targetY + ' C 150 ' + targetY + ', 160 183, 180 183');
-        }
-      });
-    }
+    // Always reposition visible channel nodes for clean spacing
+    var visibleChannels = allChannels.filter(function(ch) { return active.indexOf(ch) !== -1; });
+    var yPositions = [120, 175, 230]; // default 3-channel positions
+    if (visibleChannels.length === 1) yPositions = [175];
+    else if (visibleChannels.length === 2) yPositions = [145, 225];
+    visibleChannels.forEach(function(ch, i) {
+      var info = channelMap[ch];
+      if (!info) return;
+      var node = svgRoot.getElementById ? svgRoot.getElementById(info.node) : svgRoot.querySelector('#' + info.node);
+      if (!node) return;
+      var rect = node.querySelector('rect');
+      var text = node.querySelector('text');
+      var targetY = yPositions[i];
+      if (rect) { rect.setAttribute('y', targetY - 20); }
+      if (text) { text.setAttribute('y', targetY + 5); }
+      // Update paths from human to channel and channel to gateway
+      var humanPath = svgRoot.getElementById ? svgRoot.getElementById(info.paths[0]) : svgRoot.querySelector('#' + info.paths[0]);
+      if (humanPath) {
+        humanPath.setAttribute('d', 'M 60 56 C 60 ' + (targetY - 30) + ', 65 ' + (targetY - 15) + ', 75 ' + (targetY - 20));
+      }
+      var gwPath = svgRoot.getElementById ? svgRoot.getElementById(info.paths[1]) : svgRoot.querySelector('#' + info.paths[1]);
+      if (gwPath) {
+        gwPath.setAttribute('d', 'M 130 ' + targetY + ' C 150 ' + targetY + ', 160 183, 180 183');
+      }
+    });
   }).catch(function(){});
 }
 
@@ -5434,42 +5547,62 @@ function initOverviewFlow() {
   fetch('/api/channels').then(function(r){return r.json();}).then(function(d) {
     var active = d.channels || ['telegram', 'signal', 'whatsapp'];
     var channelMap = {
-      'telegram': { node: 'ov-node-telegram', paths: ['ov-path-human-tg', 'ov-path-tg-gw'] },
-      'signal':   { node: 'ov-node-signal',   paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
-      'whatsapp': { node: 'ov-node-whatsapp', paths: ['ov-path-human-wa', 'ov-path-wa-gw'] }
+      'telegram':    { node: 'ov-node-telegram',    paths: ['ov-path-human-tg',  'ov-path-tg-gw'] },
+      'signal':      { node: 'ov-node-signal',      paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'whatsapp':    { node: 'ov-node-whatsapp',    paths: ['ov-path-human-wa',  'ov-path-wa-gw'] },
+      'imessage':    { node: 'ov-node-imessage',    paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'discord':     { node: 'ov-node-discord',     paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'slack':       { node: 'ov-node-slack',       paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'irc':         { node: 'ov-node-irc',         paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'webchat':     { node: 'ov-node-webchat',     paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'googlechat':  { node: 'ov-node-googlechat',  paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'bluebubbles': { node: 'ov-node-bluebubbles', paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'msteams':     { node: 'ov-node-msteams',     paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'matrix':      { node: 'ov-node-matrix',      paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'mattermost':  { node: 'ov-node-mattermost',  paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'line':        { node: 'ov-node-line',        paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'nostr':       { node: 'ov-node-nostr',       paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'twitch':      { node: 'ov-node-twitch',      paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'feishu':      { node: 'ov-node-feishu',      paths: ['ov-path-human-sig', 'ov-path-sig-gw'] },
+      'zalo':        { node: 'ov-node-zalo',        paths: ['ov-path-human-sig', 'ov-path-sig-gw'] }
     };
-    var allChannels = ['telegram', 'signal', 'whatsapp'];
+    var OV_SLOT_ORDER = ['telegram', 'whatsapp', 'imessage', 'signal', 'discord', 'slack',
+                         'irc', 'webchat', 'googlechat', 'bluebubbles', 'msteams', 'matrix',
+                         'mattermost', 'line', 'nostr', 'twitch', 'feishu', 'zalo'];
+    var allChannels = OV_SLOT_ORDER.filter(function(ch) { return active.indexOf(ch) !== -1; }).slice(0, 3);
     var hiddenCount = 0;
     allChannels.forEach(function(ch) {
+      var info = channelMap[ch];
+      if (!info) return;
+      var node = document.getElementById(info.node);
       if (active.indexOf(ch) === -1) {
         hiddenCount++;
-        var info = channelMap[ch];
-        var node = document.getElementById(info.node);
         if (node) node.style.display = 'none';
         info.paths.forEach(function(pid) {
           var p = document.getElementById(pid);
           if (p) p.style.display = 'none';
         });
+      } else {
+        if (node) node.style.display = '';
       }
     });
-    if (hiddenCount > 0) {
-      var visibleChannels = allChannels.filter(function(ch) { return active.indexOf(ch) !== -1; });
-      var yPositions = visibleChannels.length === 1 ? [175] : visibleChannels.length === 2 ? [130, 210] : [120, 175, 230];
-      visibleChannels.forEach(function(ch, i) {
-        var info = channelMap[ch];
-        var node = document.getElementById(info.node);
-        if (!node) return;
-        var rect = node.querySelector('rect');
-        var text = node.querySelector('text');
-        var targetY = yPositions[i];
-        if (rect) rect.setAttribute('y', targetY - 20);
-        if (text) text.setAttribute('y', targetY + 5);
-        var humanPath = document.getElementById(info.paths[0]);
-        if (humanPath) humanPath.setAttribute('d', 'M 60 56 C 60 ' + (targetY - 30) + ', 65 ' + (targetY - 15) + ', 75 ' + (targetY - 20));
-        var gwPath = document.getElementById(info.paths[1]);
-        if (gwPath) gwPath.setAttribute('d', 'M 130 ' + targetY + ' C 150 ' + targetY + ', 160 183, 180 183');
-      });
-    }
+    var visibleChannels = allChannels.filter(function(ch) { return active.indexOf(ch) !== -1; });
+    var yPositions = visibleChannels.length === 1 ? [175] : visibleChannels.length === 2 ? [145, 225] : [120, 175, 230];
+    visibleChannels.forEach(function(ch, i) {
+      var info = channelMap[ch];
+      if (!info) return;
+      var node = document.getElementById(info.node);
+      if (!node) return;
+      var rect = node.querySelector('rect');
+      var text = node.querySelector('text');
+      var targetY = yPositions[i];
+      if (rect) rect.setAttribute('y', targetY - 20);
+      if (text) text.setAttribute('y', targetY + 5);
+      var humanPath = document.getElementById(info.paths[0]);
+      if (humanPath) humanPath.setAttribute('d', 'M 60 56 C 60 ' + (targetY - 30) + ', 65 ' + (targetY - 15) + ', 75 ' + (targetY - 20));
+      var gwPath = document.getElementById(info.paths[1]);
+      if (gwPath) gwPath.setAttribute('d', 'M 130 ' + targetY + ' C 150 ' + targetY + ', 160 183, 180 183');
+    });
   }).catch(function(){});
 }
 
@@ -5627,9 +5760,24 @@ var _modalEvents = [];
 
 /* === Component Modal === */
 var COMP_MAP = {
-  'node-telegram': {type:'channel', name:'Telegram', icon:'📱'},
-  'node-signal': {type:'channel', name:'Signal', icon:'💬'},
-  'node-whatsapp': {type:'channel', name:'WhatsApp', icon:'📲'},
+  'node-telegram':    {type:'channel', name:'Telegram',       icon:'📱', chKey:'telegram'},
+  'node-signal':      {type:'channel', name:'Signal',         icon:'🔒', chKey:'signal'},
+  'node-whatsapp':    {type:'channel', name:'WhatsApp',       icon:'📲', chKey:'whatsapp'},
+  'node-imessage':    {type:'channel', name:'iMessage',       icon:'💬', chKey:'imessage'},
+  'node-discord':     {type:'channel', name:'Discord',        icon:'🎮', chKey:'discord'},
+  'node-slack':       {type:'channel', name:'Slack',          icon:'💼', chKey:'slack'},
+  'node-irc':         {type:'channel', name:'IRC',            icon:'#️⃣', chKey:'irc'},
+  'node-webchat':     {type:'channel', name:'WebChat',        icon:'🌐', chKey:'webchat'},
+  'node-googlechat':  {type:'channel', name:'Google Chat',    icon:'💬', chKey:'googlechat'},
+  'node-bluebubbles': {type:'channel', name:'BlueBubbles',    icon:'🍎', chKey:'bluebubbles'},
+  'node-msteams':     {type:'channel', name:'MS Teams',       icon:'👔', chKey:'msteams'},
+  'node-matrix':      {type:'channel', name:'Matrix',         icon:'🔢', chKey:'matrix'},
+  'node-mattermost':  {type:'channel', name:'Mattermost',     icon:'⚓', chKey:'mattermost'},
+  'node-line':        {type:'channel', name:'LINE',           icon:'💚', chKey:'line'},
+  'node-nostr':       {type:'channel', name:'Nostr',          icon:'⚡', chKey:'nostr'},
+  'node-twitch':      {type:'channel', name:'Twitch',         icon:'🎮', chKey:'twitch'},
+  'node-feishu':      {type:'channel', name:'Feishu',         icon:'🌸', chKey:'feishu'},
+  'node-zalo':        {type:'channel', name:'Zalo',           icon:'💬', chKey:'zalo'},
   'node-gateway': {type:'gateway', name:'Gateway', icon:'🌐'},
   'node-brain': {type:'brain', name:'AI Model', icon:'🧠'},
   'node-session': {type:'tool', name:'Sessions', icon:'📋'},
@@ -5682,6 +5830,7 @@ function initOverviewCompClickHandlers() {
   });
 }
 var _tgRefreshTimer = null;
+var _imsgRefreshTimer = null;
 var _tgOffset = 0;
 var _tgAllMessages = [];
 
@@ -5696,10 +5845,12 @@ function openCompModal(nodeId) {
   
   // Clear ALL existing refresh timers to prevent stale data overwriting new modal
   if (_tgRefreshTimer) { clearInterval(_tgRefreshTimer); _tgRefreshTimer = null; }
+  if (_imsgRefreshTimer) { clearInterval(_imsgRefreshTimer); _imsgRefreshTimer = null; }
   if (_gwRefreshTimer) { clearInterval(_gwRefreshTimer); _gwRefreshTimer = null; }
   if (_brainRefreshTimer) { clearInterval(_brainRefreshTimer); _brainRefreshTimer = null; }
   if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
   if (_costOptimizerRefreshTimer) { clearInterval(_costOptimizerRefreshTimer); _costOptimizerRefreshTimer = null; }
+  if (window._genericChannelTimer) { clearInterval(window._genericChannelTimer); window._genericChannelTimer = null; }
   
   // Track current component for time travel
   window._currentComponentId = nodeId;
@@ -5719,6 +5870,26 @@ function openCompModal(nodeId) {
     document.getElementById('comp-modal-overlay').classList.add('open');
     loadTelegramMessages(false);
     _tgRefreshTimer = setInterval(function() { loadTelegramMessages(true); }, 10000);
+    return;
+  }
+
+  if (nodeId === 'node-imessage') {
+    document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading iMessages...</div>';
+    document.getElementById('comp-modal-overlay').classList.add('open');
+    loadIMessageMessages(false);
+    _imsgRefreshTimer = setInterval(function() { loadIMessageMessages(true); }, 10000);
+    return;
+  }
+
+  // Generic channel handler for all other channel types
+  var GENERIC_CHANNELS = ['node-discord','node-slack','node-irc','node-webchat','node-googlechat',
+    'node-bluebubbles','node-msteams','node-matrix','node-mattermost','node-line',
+    'node-nostr','node-twitch','node-feishu','node-zalo'];
+  if (GENERIC_CHANNELS.indexOf(nodeId) !== -1 && c.chKey) {
+    document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading ' + c.name + '...</div>';
+    document.getElementById('comp-modal-overlay').classList.add('open');
+    loadGenericChannelData(nodeId, c.chKey, c, false);
+    window._genericChannelTimer = setInterval(function() { loadGenericChannelData(nodeId, c.chKey, c, true); }, 15000);
     return;
   }
 
@@ -5855,6 +6026,40 @@ function loadMoreTelegram() {
   });
 }
 
+function loadIMessageMessages(isRefresh) {
+  var expectedNodeId = 'node-imessage';
+  var url = '/api/channel/imessage?limit=50';
+  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    var msgs = data.messages || [];
+    var body = document.getElementById('comp-modal-body');
+    var html = '<div class="imsg-stats"><span class="in">📥 ' + (data.todayIn || 0) + ' incoming</span><span class="out">📤 ' + (data.todayOut || 0) + ' outgoing</span><span style="margin-left:auto;color:var(--text-muted);font-size:11px;">Today</span></div>';
+    html += '<div class="imsg-chat">';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:20px;color:var(--text-muted);">No messages found</div>';
+    }
+    msgs.forEach(function(m) {
+      var dir = m.direction === 'in' ? 'in' : 'out';
+      var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+      var date = m.timestamp ? new Date(m.timestamp).toLocaleDateString([], {month:'short',day:'numeric'}) : '';
+      var text = m.text || (m.direction === 'in' ? '(message received)' : '(reply sent)');
+      html += '<div class="imsg-bubble ' + dir + '">';
+      html += '<div class="imsg-sender">' + escapeHtml(m.sender || (dir === 'in' ? 'Contact' : 'Me')) + '</div>';
+      html += '<div class="imsg-text md-rendered">' + renderMarkdown(text) + '</div>';
+      html += '<div class="imsg-time">' + date + ' ' + ts + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'Last updated: ' + new Date().toLocaleTimeString() + ' · ' + (data.total || msgs.length) + ' total messages';
+  }).catch(function(e) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    if (!isRefresh) {
+      document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-error);">Failed to load iMessages: ' + escapeHtml(e.message) + '</div>';
+    }
+  });
+}
+
 function escapeHtml(s) {
   var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
 }
@@ -5898,6 +6103,54 @@ function renderMarkdown(text) {
   s = s.replace(/<p>(<blockquote>)/g, '$1');
   s = s.replace(/(<\/blockquote>)<\/p>/g, '$1');
   return s;
+}
+
+function loadGenericChannelData(nodeId, chKey, comp, isRefresh) {
+  if (!isCompModalActive(nodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/' + chKey + '?limit=50&offset=0').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(nodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var status = data.status || 'connected';
+    var html = '<div class="tg-stats">'
+      + '<span class="in">📥 ' + todayIn + ' incoming</span>'
+      + '<span class="out">📤 ' + todayOut + ' outgoing</span>'
+      + '<span style="margin-left:auto;color:var(--text-muted);font-size:11px;">' + escapeHtml(status) + ' · Today</span>'
+      + '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:32px;color:var(--text-muted);">'
+        + '<div style="font-size:36px;margin-bottom:12px;">' + comp.icon + '</div>'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;">' + escapeHtml(comp.name) + ' connected</div>'
+        + '<div style="font-size:13px;">No recent messages found in logs.</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Messages will appear here once detected in session transcripts.</div>'
+        + '</div>';
+    } else {
+      html += '<div class="tg-messages">';
+      msgs.forEach(function(m) {
+        var dir = m.direction === 'in' ? 'msg-in' : 'msg-out';
+        var sender = escapeHtml(m.sender || (m.direction === 'in' ? 'User' : comp.name));
+        var text = escapeHtml(m.text || '(no text)');
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        html += '<div class="tg-msg ' + dir + '">'
+          + '<div class="tg-msg-meta"><span class="tg-msg-sender">' + sender + '</span>'
+          + (ts ? '<span class="tg-msg-time">' + ts + '</span>' : '') + '</div>'
+          + '<div class="tg-msg-text">' + text + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+  }).catch(function(e) {
+    if (!isCompModalActive(nodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);">'
+      + '<div style="font-size:36px;margin-bottom:12px;">' + comp.icon + '</div>'
+      + '<div style="font-weight:600;margin-bottom:6px;">' + escapeHtml(comp.name) + '</div>'
+      + '<div style="font-size:13px;">Could not fetch channel data.</div>'
+      + '</div>';
+  });
 }
 
 var _brainRefreshTimer = null;
@@ -6286,6 +6539,7 @@ function loadComponentWithTimeContext(nodeId) {
   
   // Clear existing refresh timers
   if (_tgRefreshTimer) { clearInterval(_tgRefreshTimer); _tgRefreshTimer = null; }
+  if (_imsgRefreshTimer) { clearInterval(_imsgRefreshTimer); _imsgRefreshTimer = null; }
   if (_gwRefreshTimer) { clearInterval(_gwRefreshTimer); _gwRefreshTimer = null; }
   if (_brainRefreshTimer) { clearInterval(_brainRefreshTimer); _brainRefreshTimer = null; }
   if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
@@ -6743,6 +6997,7 @@ function _renderEventList(events, toolKey, color) {
 
 function closeCompModal() {
   if (_tgRefreshTimer) { clearInterval(_tgRefreshTimer); _tgRefreshTimer = null; }
+  if (_imsgRefreshTimer) { clearInterval(_imsgRefreshTimer); _imsgRefreshTimer = null; }
   if (_gwRefreshTimer) { clearInterval(_gwRefreshTimer); _gwRefreshTimer = null; }
   if (_brainRefreshTimer) { clearInterval(_brainRefreshTimer); _brainRefreshTimer = null; }
   if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
@@ -7814,8 +8069,12 @@ def index():
 
 @app.route('/api/channels')
 def api_channels():
-    """Return list of configured channel names (telegram, signal, whatsapp, discord, webchat, etc.)."""
-    KNOWN_CHANNELS = ('telegram', 'signal', 'whatsapp', 'discord', 'webchat')
+    """Return list of configured channel names (telegram, signal, whatsapp, discord, webchat, imessage, etc.)."""
+    KNOWN_CHANNELS = (
+        'telegram', 'signal', 'whatsapp', 'discord', 'webchat', 'imessage', 'irc', 'slack',
+        'googlechat', 'bluebubbles', 'matrix', 'mattermost', 'msteams', 'line', 'nostr',
+        'twitch', 'feishu', 'synology-chat', 'nextcloud-talk', 'tlon', 'zalo', 'zalouser',
+    )
     configured = []
 
     def _add(name):
@@ -7857,6 +8116,7 @@ def api_channels():
     # 2. Check JSON config files (clawdbot/openclaw/moltbot)
     if not configured:
         config_files = [
+            os.path.expanduser('~/.openclaw/openclaw.json'),
             os.path.expanduser('~/.clawdbot/openclaw.json'),
             os.path.expanduser('~/.clawdbot/clawdbot.json'),
             os.path.expanduser('~/.clawdbot/moltbot.json'),
@@ -7884,13 +8144,20 @@ def api_channels():
                 continue
 
     # Filter to channels that actually have data directories (proof of real usage)
+    # Some channels (like imessage) use system paths, not openclaw dirs — skip dir check for those
+    DIR_EXEMPT_CHANNELS = {
+        'imessage', 'irc', 'googlechat', 'slack', 'webchat', 'bluebubbles',
+        'matrix', 'mattermost', 'msteams', 'line', 'nostr', 'twitch', 'feishu',
+        'synology-chat', 'nextcloud-talk', 'tlon', 'zalo', 'zalouser',
+    }
     if configured:
         active_channels = []
         oc_dir = os.path.expanduser('~/.openclaw')
         cb_dir = os.path.expanduser('~/.clawdbot')
         for ch in configured:
-            # Check for channel-specific directories that indicate real setup
-            if any(os.path.isdir(os.path.join(d, ch)) for d in [oc_dir, cb_dir]):
+            if ch in DIR_EXEMPT_CHANNELS:
+                active_channels.append(ch)
+            elif any(os.path.isdir(os.path.join(d, ch)) for d in [oc_dir, cb_dir]):
                 active_channels.append(ch)
         if active_channels:
             configured = active_channels
@@ -10146,6 +10413,304 @@ def api_channel_telegram():
     total = len(unique)
     page = unique[offset:offset + limit]
     return jsonify({'messages': page, 'total': total, 'todayIn': today_in, 'todayOut': today_out})
+
+
+@app.route('/api/channel/imessage')
+def api_channel_imessage():
+    """Read iMessage history from ~/Library/Messages/chat.db."""
+    import sqlite3
+    limit = request.args.get('limit', 50, type=int)
+
+    messages = []
+    today = datetime.now().strftime('%Y-%m-%d')
+    # Apple epoch starts 2001-01-01; convert to Unix
+    APPLE_EPOCH_OFFSET = 978307200
+
+    db_path = os.path.expanduser('~/Library/Messages/chat.db')
+    db_ok = False
+
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=5)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            # Get recent messages with handle info
+            cur.execute("""
+                SELECT m.ROWID, m.text, m.is_from_me,
+                       m.date / 1000000000 AS date_sec,
+                       h.id AS handle_id,
+                       h.uncanonicalized_id
+                FROM message m
+                LEFT JOIN handle h ON m.handle_id = h.ROWID
+                WHERE m.text IS NOT NULL AND m.text != ''
+                ORDER BY m.date DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cur.fetchall()
+            conn.close()
+            for row in rows:
+                direction = 'out' if row['is_from_me'] else 'in'
+                # Convert Apple epoch (nanoseconds) to ISO timestamp
+                unix_ts = (row['date_sec'] or 0) + APPLE_EPOCH_OFFSET
+                ts = datetime.utcfromtimestamp(unix_ts).strftime('%Y-%m-%dT%H:%M:%SZ') if unix_ts > APPLE_EPOCH_OFFSET else ''
+                contact = row['uncanonicalized_id'] or row['handle_id'] or 'Unknown'
+                sender = 'Me' if direction == 'out' else contact
+                messages.append({
+                    'timestamp': ts,
+                    'direction': direction,
+                    'sender': sender,
+                    'text': (row['text'] or '')[:300],
+                    'chatId': contact,
+                    'sessionId': '',
+                })
+            db_ok = True
+        except Exception:
+            pass
+
+    # Fallback: scan OpenClaw logs for imessage delivery events
+    if not db_ok or len(messages) == 0:
+        log_dirs = ['/tmp/openclaw', '/tmp/moltbot']
+        for ld in log_dirs:
+            if not os.path.isdir(ld):
+                continue
+            for lf in sorted(glob.glob(os.path.join(ld, '*.log')), reverse=True)[:2]:
+                try:
+                    result = subprocess.run(
+                        ['grep', '-i', 'imessage\\|iMessage\\|messageChannel=imessage', lf],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    for line in result.stdout.splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except Exception:
+                            continue
+                        ts = obj.get('time', '') or (obj.get('_meta', {}) or {}).get('date', '')
+                        msg1 = obj.get('1', '') or obj.get('0', '')
+                        direction = 'out' if 'deliver' in msg1.lower() else 'in'
+                        messages.append({
+                            'timestamp': ts, 'direction': direction,
+                            'sender': 'Me' if direction == 'out' else 'Contact',
+                            'text': msg1[:300], 'chatId': '', 'sessionId': '',
+                        })
+                except Exception:
+                    pass
+
+    # Deduplicate and sort newest first
+    seen = set()
+    unique = []
+    for m in messages:
+        key = (m['timestamp'], m['direction'], m['text'][:50])
+        if key not in seen:
+            seen.add(key)
+            unique.append(m)
+    unique.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    today_in = sum(1 for m in unique if m['direction'] == 'in' and today in m.get('timestamp', ''))
+    today_out = sum(1 for m in unique if m['direction'] == 'out' and today in m.get('timestamp', ''))
+
+    total = len(unique)
+    page = unique[:limit]
+    return jsonify({'messages': page, 'total': total, 'todayIn': today_in, 'todayOut': today_out})
+
+
+def _generic_channel_data(channel_key):
+    """Generic channel data fetcher: scans session transcripts for channel metadata."""
+    import re
+    limit = request.args.get('limit', 50, type=int)
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    messages = []
+    today_in = 0
+    today_out = 0
+
+    # Scan log files for channel events
+    log_dirs = ['/tmp/openclaw', '/tmp/moltbot']
+    for ld in log_dirs:
+        if not os.path.isdir(ld):
+            continue
+        for lf in sorted(glob.glob(os.path.join(ld, '*.log')), reverse=True)[:2]:
+            try:
+                result = subprocess.run(
+                    ['grep', '-i', f'messageChannel={channel_key}', lf],
+                    capture_output=True, text=True, timeout=5
+                )
+                for line in result.stdout.splitlines():
+                    try:
+                        obj = json.loads(line.strip())
+                    except Exception:
+                        continue
+                    msg1 = obj.get('1', '') or obj.get('0', '')
+                    ts = obj.get('time', '')
+                    if f'messageChannel={channel_key}' in msg1:
+                        direction = 'out' if 'deliver' in msg1.lower() else 'in'
+                        messages.append({
+                            'timestamp': ts, 'direction': direction,
+                            'sender': 'User' if direction == 'in' else 'Clawd',
+                            'text': msg1[:200],
+                        })
+                        if today and today in ts:
+                            if direction == 'in':
+                                today_in += 1
+                            else:
+                                today_out += 1
+            except Exception:
+                pass
+
+    # Also scan sessions.json for channel-tagged sessions
+    for sessions_dir in [
+        os.path.expanduser('~/.openclaw/agents/main/sessions'),
+        os.path.expanduser('~/.clawdbot/agents/main/sessions'),
+    ]:
+        sessions_file = os.path.join(sessions_dir, 'sessions.json')
+        if not os.path.exists(sessions_file):
+            continue
+        try:
+            with open(sessions_file) as f:
+                sess_data = json.load(f)
+            ch_sessions = [(sid, s) for sid, s in sess_data.items()
+                           if channel_key in sid.lower() and 'sessionId' in s]
+            ch_sessions.sort(key=lambda x: x[1].get('updatedAt', 0), reverse=True)
+            for sid_key, sinfo in ch_sessions[:5]:
+                uuid = sinfo['sessionId']
+                sf = os.path.join(sessions_dir, uuid + '.jsonl')
+                if not os.path.exists(sf):
+                    continue
+                try:
+                    fsize = os.path.getsize(sf)
+                    with open(sf, 'r', errors='replace') as f:
+                        if fsize > 65536:
+                            f.seek(fsize - 65536)
+                            f.readline()
+                        for sline in f:
+                            sline = sline.strip()
+                            if not sline:
+                                continue
+                            try:
+                                sd = json.loads(sline)
+                            except Exception:
+                                continue
+                            sm = sd.get('message', {})
+                            ts = sd.get('timestamp', '')
+                            role = sm.get('role', '')
+                            if role not in ('user', 'assistant'):
+                                continue
+                            content = sm.get('content', '')
+                            txt = ''
+                            if isinstance(content, list):
+                                for c in content:
+                                    if isinstance(c, dict) and c.get('type') == 'text':
+                                        txt = c.get('text', '')
+                                        break
+                            elif isinstance(content, str):
+                                txt = content
+                            if not txt or txt.startswith('System:') or 'HEARTBEAT' in txt:
+                                continue
+                            direction = 'in' if role == 'user' else 'out'
+                            messages.append({
+                                'timestamp': ts, 'direction': direction,
+                                'sender': 'User' if direction == 'in' else 'Clawd',
+                                'text': txt[:300],
+                            })
+                            if today and today in ts:
+                                if direction == 'in':
+                                    today_in += 1
+                                else:
+                                    today_out += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Deduplicate and sort
+    seen = set()
+    unique = []
+    for m in messages:
+        key = (m['timestamp'], m['direction'], m['text'][:50])
+        if key not in seen:
+            seen.add(key)
+            unique.append(m)
+    unique.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    status = 'connected' if unique else 'configured'
+    return jsonify({
+        'messages': unique[:limit],
+        'total': len(unique),
+        'todayIn': today_in,
+        'todayOut': today_out,
+        'status': status,
+    })
+
+
+@app.route('/api/channel/discord')
+def api_channel_discord():
+    return _generic_channel_data('discord')
+
+@app.route('/api/channel/slack')
+def api_channel_slack():
+    return _generic_channel_data('slack')
+
+@app.route('/api/channel/irc')
+def api_channel_irc():
+    return _generic_channel_data('irc')
+
+@app.route('/api/channel/webchat')
+def api_channel_webchat():
+    return _generic_channel_data('webchat')
+
+@app.route('/api/channel/googlechat')
+def api_channel_googlechat():
+    return _generic_channel_data('googlechat')
+
+@app.route('/api/channel/bluebubbles')
+def api_channel_bluebubbles():
+    return _generic_channel_data('bluebubbles')
+
+@app.route('/api/channel/msteams')
+def api_channel_msteams():
+    return _generic_channel_data('msteams')
+
+@app.route('/api/channel/matrix')
+def api_channel_matrix():
+    return _generic_channel_data('matrix')
+
+@app.route('/api/channel/mattermost')
+def api_channel_mattermost():
+    return _generic_channel_data('mattermost')
+
+@app.route('/api/channel/line')
+def api_channel_line():
+    return _generic_channel_data('line')
+
+@app.route('/api/channel/nostr')
+def api_channel_nostr():
+    return _generic_channel_data('nostr')
+
+@app.route('/api/channel/twitch')
+def api_channel_twitch():
+    return _generic_channel_data('twitch')
+
+@app.route('/api/channel/feishu')
+def api_channel_feishu():
+    return _generic_channel_data('feishu')
+
+@app.route('/api/channel/zalo')
+def api_channel_zalo():
+    return _generic_channel_data('zalo')
+
+@app.route('/api/channel/tlon')
+def api_channel_tlon():
+    return _generic_channel_data('tlon')
+
+@app.route('/api/channel/synology-chat')
+def api_channel_synology_chat():
+    return _generic_channel_data('synology-chat')
+
+@app.route('/api/channel/nextcloud-talk')
+def api_channel_nextcloud_talk():
+    return _generic_channel_data('nextcloud-talk')
 
 
 _api_tool_cache = {}
