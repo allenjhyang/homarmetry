@@ -5661,31 +5661,35 @@ function initOverviewFlow() {
                          'irc', 'webchat', 'googlechat', 'bluebubbles', 'msteams', 'matrix',
                          'mattermost', 'line', 'nostr', 'twitch', 'feishu', 'zalo'];
     var visibleChannels = OV_SLOT_ORDER.filter(function(ch) { return active.indexOf(ch) !== -1; }).slice(0, 3);
-    // Hide ALL channel nodes first, then show only active ones
+    // Use the clone SVG as root for getElementById (it's already in DOM via container)
+    function ovEl(id) { return document.getElementById(id); }
+    // Hide ALL channel nodes first
     Object.keys(channelMap).forEach(function(ch) {
       var info = channelMap[ch];
-      var node = document.getElementById(info.node);
+      var node = ovEl(info.node);
       if (node) node.style.display = 'none';
     });
     ['ov-path-human-tg','ov-path-tg-gw','ov-path-human-sig','ov-path-sig-gw','ov-path-human-wa','ov-path-wa-gw'].forEach(function(pid) {
-      var p = document.getElementById(pid);
+      var p = ovEl(pid);
       if (p) p.style.display = 'none';
     });
+    // Show and position only active channels
     var yPositions = visibleChannels.length === 1 ? [183] : visibleChannels.length === 2 ? [145, 225] : [120, 183, 246];
     visibleChannels.forEach(function(ch, i) {
       var info = channelMap[ch];
       if (!info) return;
-      var node = document.getElementById(info.node);
+      var node = ovEl(info.node);
       if (!node) return;
+      node.style.display = '';
       var rect = node.querySelector('rect');
       var text = node.querySelector('text');
       var targetY = yPositions[i];
       if (rect) rect.setAttribute('y', targetY - 20);
       if (text) text.setAttribute('y', targetY + 5);
-      var humanPath = document.getElementById(info.paths[0]);
-      if (humanPath) humanPath.setAttribute('d', 'M 60 56 C 60 ' + (targetY - 30) + ', 65 ' + (targetY - 15) + ', 75 ' + (targetY - 20));
-      var gwPath = document.getElementById(info.paths[1]);
-      if (gwPath) gwPath.setAttribute('d', 'M 130 ' + targetY + ' C 150 ' + targetY + ', 160 183, 180 183');
+      var humanPath = ovEl(info.paths[0]);
+      if (humanPath) { humanPath.style.display = ''; humanPath.setAttribute('d', 'M 60 56 C 60 ' + (targetY - 30) + ', 65 ' + (targetY - 15) + ', 75 ' + (targetY - 20)); }
+      var gwPath = ovEl(info.paths[1]);
+      if (gwPath) { gwPath.style.display = ''; gwPath.setAttribute('d', 'M 130 ' + targetY + ' C 150 ' + targetY + ', 160 183, 180 183'); }
     });
   }).catch(function(){});
 }
@@ -5947,6 +5951,9 @@ function openCompModal(nodeId) {
   if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
   if (_costOptimizerRefreshTimer) { clearInterval(_costOptimizerRefreshTimer); _costOptimizerRefreshTimer = null; }
   if (window._genericChannelTimer) { clearInterval(window._genericChannelTimer); window._genericChannelTimer = null; }
+  if (_webchatRefreshTimer) { clearInterval(_webchatRefreshTimer); _webchatRefreshTimer = null; }
+  if (_ircRefreshTimer) { clearInterval(_ircRefreshTimer); _ircRefreshTimer = null; }
+  if (_bbRefreshTimer) { clearInterval(_bbRefreshTimer); _bbRefreshTimer = null; }
   
   // Track current component for time travel
   window._currentComponentId = nodeId;
@@ -6033,9 +6040,33 @@ function openCompModal(nodeId) {
     return;
   }
 
+  if (nodeId === 'node-webchat') {
+    document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading WebChat...</div>';
+    document.getElementById('comp-modal-overlay').classList.add('open');
+    loadWebchatMessages(false);
+    _webchatRefreshTimer = setInterval(function() { loadWebchatMessages(true); }, 12000);
+    return;
+  }
+
+  if (nodeId === 'node-irc') {
+    document.getElementById('comp-modal-body').innerHTML = '<div class="irc-loading">*** Connecting to IRC log... ***</div>';
+    document.getElementById('comp-modal-overlay').classList.add('open');
+    loadIRCMessages(false);
+    _ircRefreshTimer = setInterval(function() { loadIRCMessages(true); }, 15000);
+    return;
+  }
+
+  if (nodeId === 'node-bluebubbles') {
+    document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading BlueBubbles...</div>';
+    document.getElementById('comp-modal-overlay').classList.add('open');
+    loadBlueBubblesMessages(false);
+    _bbRefreshTimer = setInterval(function() { loadBlueBubblesMessages(true); }, 12000);
+    return;
+  }
+
   // Generic channel handler for all other channel types
-  var GENERIC_CHANNELS = ['node-irc','node-webchat','node-googlechat',
-    'node-bluebubbles','node-msteams','node-matrix','node-mattermost','node-line',
+  var GENERIC_CHANNELS = ['node-googlechat',
+    'node-msteams','node-matrix','node-mattermost','node-line',
     'node-nostr','node-twitch','node-feishu','node-zalo'];
   if (GENERIC_CHANNELS.indexOf(nodeId) !== -1 && c.chKey) {
     document.getElementById('comp-modal-body').innerHTML = '<div style="text-align:center;padding:40px;"><div class="pulse"></div> Loading ' + c.name + '...</div>';
@@ -6460,6 +6491,288 @@ function loadGenericChannelData(nodeId, chKey, comp, isRefresh) {
   });
 }
 
+// ── Webchat themed loader ─────────────────────────────────────────────────
+var _webchatRefreshTimer = null;
+
+function loadWebchatMessages(isRefresh) {
+  var expectedNodeId = 'node-webchat';
+  if (!isCompModalActive(expectedNodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/webchat?limit=50').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var activeSessions = data.activeSessions || 0;
+    var lastActive = data.lastActive ? new Date(data.lastActive).toLocaleTimeString() : '—';
+    var html = '<div class="wc-stats">'
+      + '<span class="wc-stat-item">🌐 <b>' + activeSessions + '</b> sessions</span>'
+      + '<span class="wc-stat-item">📥 <b>' + todayIn + '</b> in</span>'
+      + '<span class="wc-stat-item">📤 <b>' + todayOut + '</b> out</span>'
+      + '<span style="margin-left:auto;font-size:11px;color:#6b7280;">Last: ' + lastActive + '</span>'
+      + '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:40px;color:#6b7280;">'
+        + '<div style="font-size:36px;margin-bottom:12px;">🌐</div>'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;color:#374151;">WebChat connected</div>'
+        + '<div style="font-size:13px;">No recent messages found in logs.</div>'
+        + '<div style="margin-top:8px;font-size:11px;">Messages appear once sessions are active.</div>'
+        + '</div>';
+    } else {
+      html += '<div class="wc-messages">';
+      msgs.forEach(function(m) {
+        var dir = m.direction === 'in' ? 'wc-msg-in' : 'wc-msg-out';
+        var text = escapeHtml(m.text || '(no text)');
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        html += '<div class="wc-msg-row ' + (m.direction === 'out' ? 'wc-row-out' : '') + '">'
+          + '<div class="wc-bubble ' + dir + '">'
+          + '<div class="wc-bubble-text">' + text + '</div>'
+          + (ts ? '<div class="wc-bubble-time">' + ts + '</div>' : '')
+          + '</div></div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'WebChat · Last updated: ' + new Date().toLocaleTimeString();
+  }).catch(function(e) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280;">Could not fetch WebChat data.</div>';
+  });
+}
+
+// ── IRC themed loader ──────────────────────────────────────────────────────
+var _ircRefreshTimer = null;
+
+function loadIRCMessages(isRefresh) {
+  var expectedNodeId = 'node-irc';
+  if (!isCompModalActive(expectedNodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/irc?limit=50').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var channels = data.channels || [];
+    var nicks = data.nicks || [];
+    var html = '<div class="irc-header">'
+      + '<span class="irc-stat">📥 ' + todayIn + '</span>'
+      + '<span class="irc-stat">📤 ' + todayOut + '</span>';
+    if (channels.length > 0) html += '<span class="irc-channels">' + channels.map(function(c){return escapeHtml(c);}).join(' ') + '</span>';
+    if (nicks.length > 0) html += '<span class="irc-nick">nick: ' + escapeHtml(nicks[0]) + '</span>';
+    html += '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:32px;color:#9ca3af;font-family:monospace;">'
+        + '<div style="font-size:28px;margin-bottom:8px;">#️⃣</div>'
+        + '<div>*** No messages found in IRC logs ***</div>'
+        + '<div style="margin-top:6px;font-size:11px;color:#6b7280;">Messages appear when IRC channel is active</div>'
+        + '</div>';
+    } else {
+      html += '<div class="irc-log">';
+      var sorted = msgs.slice().reverse();
+      sorted.forEach(function(m) {
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '??:??:??';
+        var nick = m.direction === 'in' ? (nicks[0] || 'User') : 'Clawd';
+        var text = escapeHtml(m.text || '');
+        html += '<div class="irc-line">'
+          + '<span class="irc-ts">[' + ts + ']</span> '
+          + '<span class="irc-nick-tag">&lt;' + escapeHtml(nick) + '&gt;</span> '
+          + '<span class="irc-text">' + text + '</span>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'IRC · ' + (channels.join(', ') || 'no channels') + ' · ' + new Date().toLocaleTimeString();
+  }).catch(function(e) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-family:monospace;">*** Could not fetch IRC data ***</div>';
+  });
+}
+
+// ── BlueBubbles themed loader ──────────────────────────────────────────────
+var _bbRefreshTimer = null;
+
+function loadBlueBubblesMessages(isRefresh) {
+  var expectedNodeId = 'node-bluebubbles';
+  if (!isCompModalActive(expectedNodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/bluebubbles?limit=50').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var chatCount = data.chatCount;
+    var status = data.status || 'configured';
+    var statusColor = status === 'connected' ? '#34C759' : status === 'log-only' ? '#f59e0b' : '#6b7280';
+    var html = '<div class="bb-stats">'
+      + '<span class="bb-stat-item" style="color:#34C759;">📥 <b>' + todayIn + '</b></span>'
+      + '<span class="bb-stat-item" style="color:#34C759;">📤 <b>' + todayOut + '</b></span>'
+      + (chatCount !== null && chatCount !== undefined ? '<span class="bb-stat-item">💬 <b>' + chatCount + '</b> chats</span>' : '')
+      + '<span style="margin-left:auto;font-size:11px;color:' + statusColor + ';">● ' + escapeHtml(status) + '</span>'
+      + '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:40px;">'
+        + '<div style="font-size:36px;margin-bottom:12px;">🍎</div>'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;color:#34C759;">BlueBubbles ' + (status === 'connected' ? 'Connected' : 'Configured') + '</div>'
+        + (chatCount !== null && chatCount !== undefined ? '<div style="font-size:13px;color:#6b7280;">' + chatCount + ' chats available via BB server</div>' : '<div style="font-size:13px;color:#6b7280;">No messages found in logs.</div>')
+        + '</div>';
+    } else {
+      html += '<div class="bb-messages">';
+      msgs.forEach(function(m) {
+        var dir = m.direction === 'in' ? 'bb-msg-in' : 'bb-msg-out';
+        var text = escapeHtml(m.text || '(no text)');
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        html += '<div class="bb-msg-row ' + (m.direction === 'out' ? 'bb-row-out' : '') + '">'
+          + '<div class="bb-bubble ' + dir + '">'
+          + '<div class="bb-bubble-text">' + text + '</div>'
+          + (ts ? '<div class="bb-bubble-time">' + ts + '</div>' : '')
+          + '</div></div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'BlueBubbles · ' + escapeHtml(status) + ' · ' + new Date().toLocaleTimeString();
+  }).catch(function(e) {
+    if (!isCompModalActive(expectedNodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280;">Could not fetch BlueBubbles data.</div>';
+  });
+}
+
+function loadGoogleChatMessages(isRefresh) {
+  var nodeId = 'node-googlechat';
+  if (!isCompModalActive(nodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/googlechat?limit=50&offset=0').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(nodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var spaces = data.spaces || [];
+    var html = '<div class="gc-stats">'
+      + '<span class="in">📥 ' + todayIn + ' incoming</span>'
+      + '<span class="out">📤 ' + todayOut + ' outgoing</span>'
+      + (spaces.length ? '<span style="margin-left:auto;color:#1a73e8;font-size:11px;">🏢 ' + escapeHtml(spaces.join(', ')) + '</span>' : '<span style="margin-left:auto;color:var(--text-muted);font-size:11px;">Today · Google Chat</span>')
+      + '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:32px;color:var(--text-muted);">'
+        + '<div style="font-size:40px;margin-bottom:12px;">💬</div>'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;color:#1a73e8;">Google Chat</div>'
+        + '<div style="font-size:13px;">No recent messages found in logs.</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Messages will appear here once detected in session transcripts.</div>'
+        + '</div>';
+    } else {
+      html += '<div class="gc-chat">';
+      msgs.forEach(function(m) {
+        var dir = m.direction === 'in' ? 'in' : 'out';
+        var sender = escapeHtml(m.sender || (m.direction === 'in' ? 'User' : 'Clawd'));
+        var text = escapeHtml(m.text || '(no text)');
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        html += '<div class="gc-bubble ' + dir + '">'
+          + '<div class="gc-sender">' + sender + '</div>'
+          + '<div class="gc-text">' + text + '</div>'
+          + (ts ? '<div class="gc-time">' + ts + '</div>' : '')
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'Google Chat · Last updated: ' + new Date().toLocaleTimeString();
+  }).catch(function() {
+    if (!isCompModalActive(nodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);"><div style="font-size:36px;margin-bottom:12px;">💬</div><div style="font-weight:600;color:#1a73e8;">Google Chat</div><div style="font-size:13px;margin-top:8px;">Could not fetch channel data.</div></div>';
+  });
+}
+
+function loadMSTeamsMessages(isRefresh) {
+  var nodeId = 'node-msteams';
+  if (!isCompModalActive(nodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/msteams?limit=50&offset=0').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(nodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var teams = data.teams || [];
+    var html = '<div class="mst-stats">'
+      + '<span class="in">📥 ' + todayIn + ' incoming</span>'
+      + '<span class="out">📤 ' + todayOut + ' outgoing</span>'
+      + (teams.length ? '<span style="margin-left:auto;color:#6264A7;font-size:11px;">👥 ' + escapeHtml(teams.join(', ')) + '</span>' : '<span style="margin-left:auto;color:var(--text-muted);font-size:11px;">Today · MS Teams</span>')
+      + '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:32px;color:var(--text-muted);">'
+        + '<div style="font-size:40px;margin-bottom:12px;">👔</div>'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;color:#6264A7;">Microsoft Teams</div>'
+        + '<div style="font-size:13px;">No recent messages found in logs.</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Messages will appear here once detected in session transcripts.</div>'
+        + '</div>';
+    } else {
+      html += '<div class="mst-chat">';
+      msgs.forEach(function(m) {
+        var dir = m.direction === 'in' ? 'in' : 'out';
+        var sender = escapeHtml(m.sender || (m.direction === 'in' ? 'User' : 'Clawd'));
+        var text = escapeHtml(m.text || '(no text)');
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        html += '<div class="mst-bubble ' + dir + '">'
+          + '<div class="mst-sender">' + sender + '</div>'
+          + '<div class="mst-text">' + text + '</div>'
+          + (ts ? '<div class="mst-time">' + ts + '</div>' : '')
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'Microsoft Teams · Last updated: ' + new Date().toLocaleTimeString();
+  }).catch(function() {
+    if (!isCompModalActive(nodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);"><div style="font-size:36px;margin-bottom:12px;">👔</div><div style="font-weight:600;color:#6264A7;">Microsoft Teams</div><div style="font-size:13px;margin-top:8px;">Could not fetch channel data.</div></div>';
+  });
+}
+
+function loadMattermostMessages(isRefresh) {
+  var nodeId = 'node-mattermost';
+  if (!isCompModalActive(nodeId) && isRefresh) return;
+  var body = document.getElementById('comp-modal-body');
+  fetch('/api/channel/mattermost?limit=50&offset=0').then(function(r) { return r.json(); }).then(function(data) {
+    if (!isCompModalActive(nodeId)) return;
+    var msgs = data.messages || [];
+    var todayIn = data.todayIn || 0;
+    var todayOut = data.todayOut || 0;
+    var channels = data.channels || [];
+    var html = '<div class="mm-stats">'
+      + '<span class="in">📥 ' + todayIn + ' incoming</span>'
+      + '<span class="out">📤 ' + todayOut + ' outgoing</span>'
+      + (channels.length ? '<span style="margin-left:auto;color:#0058CC;font-size:11px;"># ' + escapeHtml(channels.join(', ')) + '</span>' : '<span style="margin-left:auto;color:var(--text-muted);font-size:11px;">Today · Mattermost</span>')
+      + '</div>';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;padding:32px;color:var(--text-muted);">'
+        + '<div style="font-size:40px;margin-bottom:12px;">⚓</div>'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;color:#0058CC;">Mattermost</div>'
+        + '<div style="font-size:13px;">No recent messages found in logs.</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">Messages will appear here once detected in session transcripts.</div>'
+        + '</div>';
+    } else {
+      html += '<div class="mm-chat">';
+      msgs.forEach(function(m) {
+        var dir = m.direction === 'in' ? 'in' : 'out';
+        var sender = escapeHtml(m.sender || (m.direction === 'in' ? 'User' : 'Clawd'));
+        var text = escapeHtml(m.text || '(no text)');
+        var ts = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+        html += '<div class="mm-bubble ' + dir + '">'
+          + '<div class="mm-sender">' + sender + '</div>'
+          + '<div class="mm-text">' + text + '</div>'
+          + (ts ? '<div class="mm-time">' + ts + '</div>' : '')
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    document.getElementById('comp-modal-footer').textContent = 'Mattermost · Last updated: ' + new Date().toLocaleTimeString();
+  }).catch(function() {
+    if (!isCompModalActive(nodeId)) return;
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);"><div style="font-size:36px;margin-bottom:12px;">⚓</div><div style="font-weight:600;color:#0058CC;">Mattermost</div><div style="font-size:13px;margin-top:8px;">Could not fetch channel data.</div></div>';
+  });
+}
+
 var _brainRefreshTimer = null;
 var _brainPage = 0;
 
@@ -6849,6 +7162,9 @@ function loadComponentWithTimeContext(nodeId) {
   if (_imsgRefreshTimer) { clearInterval(_imsgRefreshTimer); _imsgRefreshTimer = null; }
   if (_discordRefreshTimer) { clearInterval(_discordRefreshTimer); _discordRefreshTimer = null; }
   if (_slackRefreshTimer) { clearInterval(_slackRefreshTimer); _slackRefreshTimer = null; }
+  if (_gcRefreshTimer) { clearInterval(_gcRefreshTimer); _gcRefreshTimer = null; }
+  if (_mstRefreshTimer) { clearInterval(_mstRefreshTimer); _mstRefreshTimer = null; }
+  if (_mmRefreshTimer) { clearInterval(_mmRefreshTimer); _mmRefreshTimer = null; }
   if (_gwRefreshTimer) { clearInterval(_gwRefreshTimer); _gwRefreshTimer = null; }
   if (_brainRefreshTimer) { clearInterval(_brainRefreshTimer); _brainRefreshTimer = null; }
   if (_toolRefreshTimer) { clearInterval(_toolRefreshTimer); _toolRefreshTimer = null; }
@@ -11135,11 +11451,261 @@ def _generic_channel_data(channel_key):
 
 @app.route('/api/channel/discord')
 def api_channel_discord():
-    return _generic_channel_data('discord')
+    """Discord channel data: log-based with guild/channel extraction."""
+    import re
+    limit = request.args.get('limit', 50, type=int)
+    today = datetime.now().strftime('%Y-%m-%d')
+    messages = []
+    guilds = set()
+    channels = set()
+    today_in = 0
+    today_out = 0
+
+    # Scan log files for Discord events
+    log_dirs = ['/tmp/openclaw', '/tmp/moltbot']
+    for ld in log_dirs:
+        if not os.path.isdir(ld):
+            continue
+        for lf in sorted(glob.glob(os.path.join(ld, '*.log')), reverse=True)[:3]:
+            try:
+                result = subprocess.run(
+                    ['grep', '-iE', 'messageChannel=discord|discord.*deliver', lf],
+                    capture_output=True, text=True, timeout=5
+                )
+                for line in result.stdout.splitlines():
+                    try:
+                        obj = json.loads(line.strip())
+                    except Exception:
+                        continue
+                    msg1 = obj.get('1', '') or obj.get('0', '')
+                    ts = obj.get('time', '')
+                    if 'messageChannel=discord' in msg1:
+                        direction = 'in'
+                        messages.append({'timestamp': ts, 'direction': 'in', 'sender': 'User', 'text': msg1[:300]})
+                        if today and today in ts:
+                            today_in += 1
+                    elif re.search(r'discord.*deliver', msg1, re.IGNORECASE):
+                        messages.append({'timestamp': ts, 'direction': 'out', 'sender': 'Bot', 'text': msg1[:300]})
+                        if today and today in ts:
+                            today_out += 1
+            except Exception:
+                pass
+
+    # Scan session transcripts for Discord messages and guild/channel info
+    sessions_dir = os.path.expanduser('~/.openclaw/agents/main/sessions')
+    sessions_file = os.path.join(sessions_dir, 'sessions.json')
+    if os.path.exists(sessions_file):
+        try:
+            with open(sessions_file) as f:
+                sess_data = json.load(f)
+            ch_sessions = [(sid, s) for sid, s in sess_data.items()
+                           if 'discord' in sid.lower() and 'sessionId' in s]
+            ch_sessions.sort(key=lambda x: x[1].get('updatedAt', 0), reverse=True)
+            for sid_key, sinfo in ch_sessions[:5]:
+                uuid = sinfo['sessionId']
+                sf = os.path.join(sessions_dir, uuid + '.jsonl')
+                if not os.path.exists(sf):
+                    continue
+                try:
+                    fsize = os.path.getsize(sf)
+                    with open(sf, 'r', errors='replace') as f:
+                        if fsize > 65536:
+                            f.seek(fsize - 65536)
+                            f.readline()
+                        for sline in f:
+                            sline = sline.strip()
+                            if not sline:
+                                continue
+                            try:
+                                sd = json.loads(sline)
+                            except Exception:
+                                continue
+                            sm = sd.get('message', {})
+                            ts = sd.get('timestamp', '')
+                            role = sm.get('role', '')
+                            if role not in ('user', 'assistant'):
+                                continue
+                            content = sm.get('content', '')
+                            txt = ''
+                            if isinstance(content, list):
+                                for c in content:
+                                    if isinstance(c, dict) and c.get('type') == 'text':
+                                        txt = c.get('text', '')
+                                        break
+                            elif isinstance(content, str):
+                                txt = content
+                            if not txt or txt.startswith('System:') or 'HEARTBEAT' in txt:
+                                continue
+                            # Extract guild/channel from [Discord guildName channelName] pattern
+                            m = re.search(r'\[Discord\s+([^\]]+?)\s+#?(\S+)\]', txt)
+                            if m:
+                                guilds.add(m.group(1))
+                                channels.add(m.group(2))
+                            direction = 'in' if role == 'user' else 'out'
+                            messages.append({
+                                'timestamp': ts, 'direction': direction,
+                                'sender': 'User' if direction == 'in' else 'Bot',
+                                'text': txt[:300],
+                            })
+                            if today and today in ts:
+                                if direction == 'in':
+                                    today_in += 1
+                                else:
+                                    today_out += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Deduplicate and sort
+    seen = set()
+    unique = []
+    for m in messages:
+        key = (m['timestamp'], m['direction'], m['text'][:50])
+        if key not in seen:
+            seen.add(key)
+            unique.append(m)
+    unique.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    return jsonify({
+        'messages': unique[:limit],
+        'total': len(unique),
+        'todayIn': today_in,
+        'todayOut': today_out,
+        'guilds': sorted(guilds),
+        'channels': sorted(channels),
+    })
+
 
 @app.route('/api/channel/slack')
 def api_channel_slack():
-    return _generic_channel_data('slack')
+    """Slack channel data: log-based with workspace/channel extraction."""
+    import re
+    limit = request.args.get('limit', 50, type=int)
+    today = datetime.now().strftime('%Y-%m-%d')
+    messages = []
+    workspaces = set()
+    channels = set()
+    today_in = 0
+    today_out = 0
+
+    # Scan log files for Slack events
+    log_dirs = ['/tmp/openclaw', '/tmp/moltbot']
+    for ld in log_dirs:
+        if not os.path.isdir(ld):
+            continue
+        for lf in sorted(glob.glob(os.path.join(ld, '*.log')), reverse=True)[:3]:
+            try:
+                result = subprocess.run(
+                    ['grep', '-iE', 'messageChannel=slack|slack.*deliver', lf],
+                    capture_output=True, text=True, timeout=5
+                )
+                for line in result.stdout.splitlines():
+                    try:
+                        obj = json.loads(line.strip())
+                    except Exception:
+                        continue
+                    msg1 = obj.get('1', '') or obj.get('0', '')
+                    ts = obj.get('time', '')
+                    if 'messageChannel=slack' in msg1:
+                        messages.append({'timestamp': ts, 'direction': 'in', 'sender': 'User', 'text': msg1[:300]})
+                        if today and today in ts:
+                            today_in += 1
+                    elif re.search(r'slack.*deliver', msg1, re.IGNORECASE):
+                        messages.append({'timestamp': ts, 'direction': 'out', 'sender': 'Bot', 'text': msg1[:300]})
+                        if today and today in ts:
+                            today_out += 1
+            except Exception:
+                pass
+
+    # Scan session transcripts for Slack messages and workspace/channel info
+    sessions_dir = os.path.expanduser('~/.openclaw/agents/main/sessions')
+    sessions_file = os.path.join(sessions_dir, 'sessions.json')
+    if os.path.exists(sessions_file):
+        try:
+            with open(sessions_file) as f:
+                sess_data = json.load(f)
+            ch_sessions = [(sid, s) for sid, s in sess_data.items()
+                           if 'slack' in sid.lower() and 'sessionId' in s]
+            ch_sessions.sort(key=lambda x: x[1].get('updatedAt', 0), reverse=True)
+            for sid_key, sinfo in ch_sessions[:5]:
+                uuid = sinfo['sessionId']
+                sf = os.path.join(sessions_dir, uuid + '.jsonl')
+                if not os.path.exists(sf):
+                    continue
+                try:
+                    fsize = os.path.getsize(sf)
+                    with open(sf, 'r', errors='replace') as f:
+                        if fsize > 65536:
+                            f.seek(fsize - 65536)
+                            f.readline()
+                        for sline in f:
+                            sline = sline.strip()
+                            if not sline:
+                                continue
+                            try:
+                                sd = json.loads(sline)
+                            except Exception:
+                                continue
+                            sm = sd.get('message', {})
+                            ts = sd.get('timestamp', '')
+                            role = sm.get('role', '')
+                            if role not in ('user', 'assistant'):
+                                continue
+                            content = sm.get('content', '')
+                            txt = ''
+                            if isinstance(content, list):
+                                for c in content:
+                                    if isinstance(c, dict) and c.get('type') == 'text':
+                                        txt = c.get('text', '')
+                                        break
+                            elif isinstance(content, str):
+                                txt = content
+                            if not txt or txt.startswith('System:') or 'HEARTBEAT' in txt:
+                                continue
+                            # Extract workspace/channel from [Slack workspace #channel] pattern
+                            m = re.search(r'\[Slack\s+([^\]]+?)\s+#?(\S+)\]', txt)
+                            if m:
+                                workspaces.add(m.group(1))
+                                channels.add(m.group(2))
+                            # Also look for channel mentions like #general
+                            ch_m = re.findall(r'#([a-z0-9_-]+)', txt[:200])
+                            for ch in ch_m:
+                                channels.add(ch)
+                            direction = 'in' if role == 'user' else 'out'
+                            messages.append({
+                                'timestamp': ts, 'direction': direction,
+                                'sender': 'User' if direction == 'in' else 'Bot',
+                                'text': txt[:300],
+                            })
+                            if today and today in ts:
+                                if direction == 'in':
+                                    today_in += 1
+                                else:
+                                    today_out += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Deduplicate and sort
+    seen = set()
+    unique = []
+    for m in messages:
+        key = (m['timestamp'], m['direction'], m['text'][:50])
+        if key not in seen:
+            seen.add(key)
+            unique.append(m)
+    unique.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    return jsonify({
+        'messages': unique[:limit],
+        'total': len(unique),
+        'todayIn': today_in,
+        'todayOut': today_out,
+        'workspaces': sorted(workspaces),
+        'channels': sorted(channels),
+    })
 
 @app.route('/api/channel/irc')
 def api_channel_irc():
