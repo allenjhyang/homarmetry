@@ -6958,8 +6958,8 @@ function loadCostOptimizerData(isRefresh) {
     if (!isCompModalActive(expectedNodeId)) return;
     var body = document.getElementById('comp-modal-body');
     var html = '';
-    
-    // Cost Summary
+
+    // ══ SECTION 1: Cost Summary ══════════════════════════════════
     html += '<div class="cost-optimizer-summary">';
     html += '<div class="cost-stat-grid">';
     html += '<div class="cost-stat"><div class="cost-label">Today</div><div class="cost-value">$' + (data.costs.today || 0).toFixed(3) + '</div></div>';
@@ -6968,66 +6968,121 @@ function loadCostOptimizerData(isRefresh) {
     html += '<div class="cost-stat"><div class="cost-label">Projected Monthly</div><div class="cost-value">$' + (data.costs.projected || 0).toFixed(2) + '</div></div>';
     html += '</div>';
     html += '</div>';
-    
-    // Local Model Availability
-    html += '<div class="local-models-section" style="margin-top:20px;">';
-    html += '<h3 style="color:var(--text-accent);margin-bottom:12px;">🖥️ Local Model Availability</h3>';
-    if (data.localModels.available) {
-      html += '<div class="local-status-good">✅ Ollama detected with ' + data.localModels.count + ' tool-capable models</div>';
-      html += '<div class="model-list" style="margin-top:8px;">';
-      data.localModels.models.forEach(function(model) {
-        html += '<span class="model-badge">' + model + '</span>';
+
+    // Model breakdown from expensive ops
+    if (data.expensiveOps && data.expensiveOps.length > 0) {
+      html += '<div style="margin-top:10px;">';
+      data.expensiveOps.slice(0, 3).forEach(function(op) {
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--bg-hover);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--text-error);">';
+        html += '<span style="font-size:12px;color:var(--text-secondary);">' + op.model + ' <span style="color:var(--text-muted);">· ' + op.tokens + ' tokens · ' + op.timeAgo + '</span></span>';
+        html += '<span style="font-size:12px;color:var(--text-error);font-weight:700;">$' + op.cost.toFixed(4) + '</span>';
+        html += '</div>';
       });
       html += '</div>';
-    } else {
-      html += '<div class="local-status-warning">⚠️ No local models available</div>';
-      html += '<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Install Ollama and pull tool-capable models to reduce API costs</div>';
-      html += '<div style="margin-top:4px;font-size:11px;color:var(--text-muted);">Example: <code>ollama pull llama3.3</code></div>';
+    }
+
+    // ══ SECTION 2: Local Model Recommendations (llmfit) ══════════
+    html += '<div class="co-section">';
+    html += '<h3>🖥️ Local Model Recommendations <span style="font-size:11px;color:var(--text-muted);font-weight:400;">powered by llmfit</span></h3>';
+
+    var llm = data.llmfit || {};
+    var sys = llm.system || {};
+
+    // System specs banner
+    html += '<div class="co-sys-info">';
+    if (sys.cpu_name) {
+      html += '<div class="co-sys-item">💻 <strong>' + sys.cpu_name + '</strong></div>';
+    }
+    if (sys.total_ram_gb) {
+      html += '<div class="co-sys-item">🧠 <strong>' + sys.total_ram_gb + ' GB</strong> RAM</div>';
+    }
+    if (sys.cpu_cores) {
+      html += '<div class="co-sys-item">⚙️ <strong>' + sys.cpu_cores + ' cores</strong></div>';
+    }
+    if (sys.has_metal || (sys.cpu_name && sys.cpu_name.indexOf('Apple') !== -1)) {
+      html += '<div class="co-sys-item" style="color:#4ade80;">🚀 <strong>Metal GPU</strong> (3-5x boost)</div>';
     }
     html += '</div>';
-    
-    // Cost Optimization Recommendations
-    html += '<div class="recommendations-section" style="margin-top:20px;">';
-    html += '<h3 style="color:var(--text-accent);margin-bottom:12px;">💡 Optimization Recommendations</h3>';
-    
-    if (data.recommendations.length === 0) {
-      html += '<div style="padding:12px;background:var(--bg-success);border-radius:8px;color:var(--text-success);">✅ Cost usage is optimal</div>';
+
+    if (!data.ollamaInstalled) {
+      html += '<div class="co-ollama-prompt">';
+      html += '<div style="font-size:13px;color:#a78bfa;font-weight:600;">⚠️ Ollama not installed — install to run models locally</div>';
+      html += '<div class="co-ollama-cmd">brew install ollama  # or: curl -fsSL https://ollama.ai/install.sh | sh</div>';
+      html += '<button class="co-action-btn" onclick="navigator.clipboard.writeText(\'brew install ollama\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy Install Command\',2000);">Copy Install Command</button>';
+      html += '</div>';
     } else {
+      html += '<div class="local-status-good" style="margin-bottom:10px;">✅ Ollama installed' + (data.localModels.available ? ' · ' + data.localModels.count + ' models loaded' : ' · no models running') + '</div>';
+    }
+
+    if (llm.available && llm.recommendations && llm.recommendations.length > 0) {
+      html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Top picks for your M2 Pro · 32GB — Apple Silicon runs these <span style="color:#4ade80;font-weight:600;">3-5x faster</span> than llmfit estimates via Ollama+Metal</div>';
+      html += '<div class="co-model-grid">';
+      llm.recommendations.slice(0, 4).forEach(function(m) {
+        var badgeClass = (m.category || '').toLowerCase() === 'coding' ? 'coding' : 'chat';
+        var ollamaName = m.name.toLowerCase().replace(/-instruct.*$/i, '').replace(/[^a-z0-9.-]/g, '-');
+        var tpsDisplay = m.estimatedTps ? (Math.round(m.estimatedTps * 3.5)) + ' tok/s*' : '—';
+        html += '<div class="co-model-card">';
+        html += '<div class="co-model-name">' + m.name + '</div>';
+        html += '<div class="co-model-provider">' + m.provider + ' · ' + (m.parameterCount || '') + '</div>';
+        html += '<span class="co-badge ' + badgeClass + '">' + (m.category || 'Chat') + '</span>';
+        html += '<div class="co-model-stats">';
+        html += '<div class="co-model-stat"><span>Speed (Metal est.)</span><span>' + tpsDisplay + '</span></div>';
+        html += '<div class="co-model-stat"><span>RAM needed</span><span>' + (m.memoryRequiredGb || '?') + ' GB</span></div>';
+        html += '<div class="co-model-stat"><span>Context</span><span>' + (m.contextLength ? Math.round(m.contextLength/1000) + 'K' : '—') + '</span></div>';
+        html += '</div>';
+        html += '<div class="co-speed-note">* ~3-5x faster with Ollama+Metal on Apple Silicon</div>';
+        html += '<button class="co-action-btn" onclick="navigator.clipboard.writeText(\'ollama pull ' + ollamaName + '\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 ollama pull ' + ollamaName + '\',2000);">📋 ollama pull ' + ollamaName + '</button>';
+        html += '<a class="co-action-btn secondary" href="https://huggingface.co/' + m.fullName + '" target="_blank" style="display:block;margin-top:4px;text-decoration:none;">🔗 View on HuggingFace</a>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else if (!llm.available) {
+      html += '<div style="color:var(--text-muted);font-size:13px;padding:10px;">llmfit not available — install with: <code>pip install llmfit</code></div>';
+    }
+    html += '</div>';
+
+    // ══ SECTION 3: Savings Opportunities ═════════════════════════
+    if (data.savingsOpportunities && data.savingsOpportunities.length > 0) {
+      html += '<div class="co-section">';
+      html += '<h3>💡 Savings Opportunities</h3>';
+      data.savingsOpportunities.forEach(function(opp) {
+        html += '<div class="co-savings-row">';
+        html += '<div class="co-savings-title">' + opp.task + '</div>';
+        html += '<div class="co-savings-detail">Current: <strong>' + opp.currentModel + '</strong> → Suggested: <strong>' + opp.suggestedModel + '</strong></div>';
+        html += '<div class="co-savings-detail" style="color:var(--text-muted);">' + opp.reason + '</div>';
+        html += '<div class="co-savings-amount">Est. savings: ' + opp.estimatedSavings + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // ══ SECTION 4: Quick Actions ══════════════════════════════════
+    html += '<div class="co-section">';
+    html += '<h3>⚙️ Quick Actions</h3>';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+    html += '<button class="co-action-btn" style="width:auto;padding:6px 14px;" onclick="navigator.clipboard.writeText(\'brew install ollama\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy Ollama Install\',2000);">📋 Copy Ollama Install</button>';
+    html += '<button class="co-action-btn secondary" style="width:auto;padding:6px 14px;" onclick="navigator.clipboard.writeText(\'ollama serve\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy: ollama serve\',2000);">📋 Copy: ollama serve</button>';
+    html += '<a class="co-action-btn secondary" style="width:auto;padding:6px 14px;text-decoration:none;display:inline-block;" href="https://ollama.com/search" target="_blank">🔍 Browse Ollama Models</a>';
+    html += '</div>';
+
+    // Also show cost recommendations
+    if (data.recommendations && data.recommendations.length > 0) {
+      html += '<div style="margin-top:14px;">';
       data.recommendations.forEach(function(rec) {
         var priority = rec.priority === 'high' ? '🔥' : rec.priority === 'medium' ? '⚡' : '💡';
         var bgClass = rec.priority === 'high' ? 'bg-error' : rec.priority === 'medium' ? 'bg-warning' : 'bg-hover';
-        html += '<div class="recommendation" style="padding:12px;margin-bottom:8px;background:var(--' + bgClass + ');border-radius:8px;">';
-        html += '<div style="font-weight:600;margin-bottom:4px;">' + priority + ' ' + rec.title + '</div>';
-        html += '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">' + rec.description + '</div>';
-        if (rec.action) {
-          html += '<div style="font-size:12px;color:var(--text-muted);font-family:monospace;">' + rec.action + '</div>';
-        }
-        html += '</div>';
-      });
-    }
-    html += '</div>';
-    
-    // Recent High-Cost Operations
-    if (data.expensiveOps && data.expensiveOps.length > 0) {
-      html += '<div class="expensive-ops-section" style="margin-top:20px;">';
-      html += '<h3 style="color:var(--text-accent);margin-bottom:12px;">💸 Recent High-Cost Operations</h3>';
-      data.expensiveOps.forEach(function(op) {
-        html += '<div class="expensive-op" style="padding:10px;margin-bottom:6px;background:var(--bg-hover);border-radius:6px;border-left:3px solid var(--text-error);">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-        html += '<div style="font-weight:600;">' + op.model + '</div>';
-        html += '<div style="color:var(--text-error);font-weight:600;">$' + op.cost.toFixed(4) + '</div>';
-        html += '</div>';
-        html += '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">' + op.tokens + ' tokens · ' + op.timeAgo + '</div>';
-        if (op.canOptimize) {
-          html += '<div style="font-size:11px;color:var(--text-success);margin-top:4px;">💡 Could use local model for this task type</div>';
-        }
+        html += '<div class="recommendation" style="padding:10px 12px;margin-bottom:6px;background:var(--' + bgClass + ');border-radius:8px;">';
+        html += '<div style="font-weight:600;margin-bottom:2px;font-size:13px;">' + priority + ' ' + rec.title + '</div>';
+        html += '<div style="font-size:12px;color:var(--text-secondary);">' + rec.description + '</div>';
+        if (rec.action) html += '<div style="font-size:11px;color:var(--text-muted);font-family:monospace;margin-top:4px;">' + rec.action + '</div>';
         html += '</div>';
       });
       html += '</div>';
     }
-    
+    html += '</div>';
+
     body.innerHTML = html;
-    document.getElementById('comp-modal-footer').textContent = 'Auto-refreshing · Last updated: ' + new Date().toLocaleTimeString();
+    document.getElementById('comp-modal-footer').textContent = 'Auto-refreshing · Last updated: ' + new Date().toLocaleTimeString() + (data.llmfitAvailable ? ' · llmfit ✓' : '');
   }).catch(function(e) {
     if (!isCompModalActive(expectedNodeId)) return;
     if (!isRefresh) {
