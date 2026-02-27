@@ -1265,8 +1265,9 @@ def _detect_gateway_port():
         except ValueError:
             pass
     # Try reading from gateway config
-    # Try JSON configs first (moltbot.json / clawdbot.json)
+    # Try JSON configs first (openclaw.json / moltbot.json / clawdbot.json)
     json_paths = [
+        os.path.expanduser('~/.openclaw/openclaw.json'),
         os.path.expanduser('~/.openclaw/moltbot.json'),
         os.path.expanduser('~/.openclaw/clawdbot.json'),
         os.path.expanduser('~/.clawdbot/clawdbot.json'),
