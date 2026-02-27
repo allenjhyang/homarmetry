@@ -1647,6 +1647,34 @@ DASHBOARD_HTML = r"""
   .model-badge { background: var(--bg-accent); color: #ffffff; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .recommendation { border-left: 3px solid var(--text-accent); }
 
+  /* Cost Optimizer Enhanced Cards */
+  .co-section { margin-top: 20px; }
+  .co-section h3 { color: var(--text-accent); margin-bottom: 12px; font-size: 15px; font-weight: 700; }
+  .co-model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .co-model-card { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 10px; padding: 14px; transition: border-color 0.2s, transform 0.15s; cursor: default; }
+  .co-model-card:hover { border-color: var(--text-accent); transform: translateY(-2px); }
+  .co-model-name { font-weight: 700; font-size: 13px; color: var(--text-primary); margin-bottom: 6px; word-break: break-all; }
+  .co-model-provider { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+  .co-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .co-badge.chat { background: #1e3a5f; color: #60a5fa; }
+  .co-badge.coding { background: #14532d; color: #4ade80; }
+  .co-model-stats { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .co-model-stat { display: flex; justify-content: space-between; }
+  .co-model-stat span:last-child { font-weight: 600; color: var(--text-primary); }
+  .co-speed-note { font-size: 10px; color: #4ade80; margin-top: 4px; }
+  .co-action-btn { display: inline-block; margin-top: 8px; padding: 4px 10px; background: var(--bg-accent); color: #fff; border: none; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; width: 100%; text-align: center; transition: opacity 0.15s; }
+  .co-action-btn:hover { opacity: 0.8; }
+  .co-action-btn.secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border-primary); }
+  .co-savings-row { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; background: var(--bg-hover); border-radius: 8px; border-left: 3px solid #fbbf24; margin-bottom: 8px; }
+  .co-savings-title { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+  .co-savings-detail { font-size: 12px; color: var(--text-secondary); }
+  .co-savings-amount { font-size: 12px; color: #4ade80; font-weight: 600; }
+  .co-sys-info { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .co-sys-item { display: flex; align-items: center; gap: 5px; }
+  .co-sys-item strong { color: var(--text-primary); }
+  .co-ollama-prompt { background: #1c1c2e; border: 1px dashed #7c3aed; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .co-ollama-cmd { font-family: monospace; font-size: 12px; background: var(--bg-tertiary); padding: 6px 10px; border-radius: 5px; margin-top: 6px; color: #a78bfa; }
+
   .full-width { grid-column: 1 / -1; }
   .section-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin: 24px 0 12px; display: flex; align-items: center; gap: 8px; }
 
@@ -7683,6 +7711,7 @@ function closeCompModal() {
   if (_webchatRefreshTimer) { clearInterval(_webchatRefreshTimer); _webchatRefreshTimer = null; }
   if (_ircRefreshTimer) { clearInterval(_ircRefreshTimer); _ircRefreshTimer = null; }
   if (_bbRefreshTimer) { clearInterval(_bbRefreshTimer); _bbRefreshTimer = null; }
+  if (window._genericChannelTimer) { clearInterval(window._genericChannelTimer); window._genericChannelTimer = null; }
   
   // Reset time travel state
   _timeTravelMode = false;
@@ -13177,26 +13206,44 @@ def api_cost_optimization():
         costs = _get_cost_summary()
         
         # Check Ollama availability
-        local_models = _check_ollama_availability()
+        local_models_ollama = _check_ollama_availability()
         
         # Generate recommendations
-        recommendations = _generate_cost_recommendations(costs, local_models)
+        recommendations = _generate_cost_recommendations(costs, local_models_ollama)
         
         # Get recent expensive operations
         expensive_ops = _get_expensive_operations()
         
+        # Get llmfit local model recommendations
+        llmfit_data = _get_llmfit_recommendations()
+        
+        # Check if ollama binary is installed
+        import shutil
+        ollama_installed = shutil.which('ollama') is not None
+        
+        # Build savings opportunities
+        savings = _generate_savings_opportunities()
+        
         return jsonify({
             'costs': costs,
-            'localModels': local_models,
+            'localModels': local_models_ollama,
             'recommendations': recommendations,
-            'expensiveOps': expensive_ops
+            'expensiveOps': expensive_ops,
+            'llmfit': llmfit_data,
+            'ollamaInstalled': ollama_installed,
+            'llmfitAvailable': llmfit_data.get('available', False),
+            'savingsOpportunities': savings,
         })
     except Exception as e:
         return jsonify({
             'costs': {'today': 0, 'week': 0, 'month': 0, 'projected': 0},
             'localModels': {'available': False, 'count': 0, 'models': []},
             'recommendations': [{'title': 'API Error', 'description': str(e), 'priority': 'low'}],
-            'expensiveOps': []
+            'expensiveOps': [],
+            'llmfit': {'available': False, 'recommendations': [], 'codingModels': [], 'chatModels': [], 'system': {}},
+            'ollamaInstalled': False,
+            'llmfitAvailable': False,
+            'savingsOpportunities': [],
         })
 
 
@@ -13371,6 +13418,124 @@ def _get_memory_files():
             name = 'memory/' + os.path.basename(f)
             result.append({'path': name, 'size': os.path.getsize(f)})
     return result
+
+
+def _get_llmfit_recommendations():
+    """Run llmfit to get local model recommendations for this hardware."""
+    import shutil
+    if not shutil.which('llmfit'):
+        return {'available': False, 'recommendations': [], 'codingModels': [], 'chatModels': [], 'system': {}}
+    
+    try:
+        # General recommendations
+        result = subprocess.run(
+            ['llmfit', 'recommend', '--json', '--limit', '8'],
+            capture_output=True, text=True, timeout=15
+        )
+        all_data = json.loads(result.stdout) if result.returncode == 0 else {}
+        
+        # Coding-specific
+        coding_result = subprocess.run(
+            ['llmfit', 'recommend', '--json', '--use-case', 'coding', '--limit', '5'],
+            capture_output=True, text=True, timeout=15
+        )
+        coding_data = json.loads(coding_result.stdout) if coding_result.returncode == 0 else {}
+        
+        # Chat-specific
+        chat_result = subprocess.run(
+            ['llmfit', 'recommend', '--json', '--use-case', 'chat', '--limit', '5'],
+            capture_output=True, text=True, timeout=15
+        )
+        chat_data = json.loads(chat_result.stdout) if chat_result.returncode == 0 else {}
+        
+        system_info = all_data.get('system', {})
+        # Annotate: llmfit doesn't detect Apple Silicon GPU but Metal makes it 3-5x faster
+        cpu = system_info.get('cpu_name', '')
+        if 'apple' in cpu.lower() or 'M1' in cpu or 'M2' in cpu or 'M3' in cpu or 'M4' in cpu:
+            system_info['note'] = 'Apple Silicon — Metal GPU available (3-5x faster than llmfit estimates)'
+            system_info['has_metal'] = True
+        
+        def _clean_model(m):
+            # Extract short name from full HF path
+            name = m.get('name', '')
+            short = name.split('/')[-1] if '/' in name else name
+            return {
+                'name': short,
+                'fullName': name,
+                'provider': m.get('provider', ''),
+                'category': m.get('category', ''),
+                'useCase': m.get('use_case', ''),
+                'estimatedTps': m.get('estimated_tps', 0),
+                'memoryRequiredGb': m.get('memory_required_gb', 0),
+                'parameterCount': m.get('parameter_count', ''),
+                'contextLength': m.get('context_length', 0),
+                'score': m.get('score', 0),
+                'bestQuant': m.get('best_quant', ''),
+                'fitLevel': m.get('fit_level', ''),
+            }
+        
+        return {
+            'available': True,
+            'system': system_info,
+            'recommendations': [_clean_model(m) for m in all_data.get('models', [])[:8]],
+            'codingModels': [_clean_model(m) for m in coding_data.get('models', [])[:5]],
+            'chatModels': [_clean_model(m) for m in chat_data.get('models', [])[:5]],
+        }
+    except Exception as e:
+        return {'available': False, 'error': str(e), 'recommendations': [], 'codingModels': [], 'chatModels': [], 'system': {}}
+
+
+def _generate_savings_opportunities():
+    """Identify tasks/crons that could use local models instead of expensive cloud models."""
+    opportunities = []
+    
+    expensive_models = ['claude-sonnet', 'claude-opus', 'gpt-4', 'o1', 'o3']
+    
+    # Check cron jobs
+    try:
+        crons = _get_crons()
+        for cron in crons:
+            model = cron.get('model', cron.get('modelRef', ''))
+            name = cron.get('name', cron.get('label', 'Unknown cron'))
+            if any(m in (model or '').lower() for m in expensive_models):
+                prompt = (cron.get('prompt', '') or '').lower()
+                # Heuristic: heartbeat/status checks are simple tasks
+                is_simple = any(w in prompt for w in ['heartbeat', 'check', 'status', 'ping', 'monitor', 'health'])
+                if is_simple or not prompt:
+                    opportunities.append({
+                        'task': f'Cron: {name}',
+                        'currentModel': model or 'claude-sonnet-4-6',
+                        'suggestedModel': 'Qwen2.5-Coder-3B via Ollama',
+                        'estimatedSavings': '~$1-3/month',
+                        'reason': 'Periodic checks and status tasks don\'t need frontier models',
+                    })
+    except Exception:
+        pass
+    
+    # Always suggest heartbeat optimization
+    opportunities.append({
+        'task': 'Heartbeat cron (periodic checks)',
+        'currentModel': 'claude-sonnet-4-6',
+        'suggestedModel': 'Qwen3-4B via Ollama',
+        'estimatedSavings': '~$2-5/month',
+        'reason': 'Simple periodic checks (email, calendar, weather) don\'t need frontier model',
+    })
+    opportunities.append({
+        'task': 'Summarization & formatting tasks',
+        'currentModel': 'claude-sonnet-4-6',
+        'suggestedModel': 'Llama-3.2-1B-Instruct via Ollama',
+        'estimatedSavings': '~$1-2/month',
+        'reason': 'Text formatting, summarization, and simple rewrites work well locally',
+    })
+    opportunities.append({
+        'task': 'Sub-agent coding tasks',
+        'currentModel': 'claude-sonnet-4-6',
+        'suggestedModel': 'DeepSeek-Coder-V2-Lite via Ollama',
+        'estimatedSavings': '~$3-8/month',
+        'reason': 'Small, well-scoped coding subtasks can run on local coding models',
+    })
+    
+    return opportunities[:6]
 
 
 def _get_cost_summary():
