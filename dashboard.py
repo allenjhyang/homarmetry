@@ -1675,6 +1675,39 @@ DASHBOARD_HTML = r"""
   .co-ollama-prompt { background: #1c1c2e; border: 1px dashed #7c3aed; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
   .co-ollama-cmd { font-family: monospace; font-size: 12px; background: var(--bg-tertiary); padding: 6px 10px; border-radius: 5px; margin-top: 6px; color: #a78bfa; }
 
+  /* Cost Optimizer v2 — llmfit-powered */
+  .cost-overview { background: linear-gradient(135deg, #1a2a1a, #1a1a2a); border: 1px solid #2d4a2d; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
+  .cost-overview-header { font-size: 14px; font-weight: 700; color: #4ade80; margin-bottom: 10px; letter-spacing: 0.3px; }
+  .cost-overview-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .cost-overview-item { display: flex; flex-direction: column; }
+  .cost-overview-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-bottom: 2px; }
+  .cost-overview-value { font-size: 20px; font-weight: 700; color: #fbbf24; }
+  .cost-overview-value.green { color: #4ade80; }
+  .savings-highlight { background: #0f2d0f; border: 1px solid #14532d; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #4ade80; font-weight: 600; margin-top: 8px; }
+  .hw-card { background: var(--bg-tertiary); border: 1px solid #2d3748; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .hw-card-chip { background: #1e3a5f; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; color: #60a5fa; }
+  .hw-card-chip.green { background: #14532d; color: #4ade80; }
+  .hw-card-chip.amber { background: #451a03; color: #fbbf24; }
+  .hw-metal-notice { background: #1c1500; border: 1px solid #92400e; border-radius: 8px; padding: 8px 12px; font-size: 11px; color: #fbbf24; margin-bottom: 12px; }
+  .model-card { background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 10px; padding: 14px; margin-bottom: 10px; transition: border-color 0.2s, transform 0.15s; }
+  .model-card:hover { border-color: #4ade80; transform: translateY(-1px); }
+  .model-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+  .model-card-name { font-weight: 700; font-size: 13px; color: var(--text-primary); }
+  .model-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+  .model-badge.coding { background: #14532d; color: #4ade80; }
+  .model-badge.chat { background: #1e3a5f; color: #60a5fa; }
+  .model-card-stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+  .model-card-stat { display: flex; flex-direction: column; }
+  .model-card-stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px; }
+  .model-card-stat-value { font-weight: 600; color: var(--text-primary); }
+  .model-install-cmd { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; font-family: monospace; font-size: 11px; color: #e6edf3; margin-top: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .model-install-cmd:hover { border-color: #4ade80; }
+  .task-rec { background: var(--bg-hover); border-left: 3px solid #fbbf24; border-radius: 0 8px 8px 0; padding: 10px 14px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: start; }
+  .task-rec-title { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+  .task-rec-savings { font-size: 12px; font-weight: 700; color: #4ade80; white-space: nowrap; }
+  .task-rec-arrow { font-size: 11px; color: var(--text-muted); grid-column: 1; }
+  .task-rec-reason { font-size: 11px; color: var(--text-muted); grid-column: 1 / -1; }
+
   .full-width { grid-column: 1 / -1; }
   .section-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin: 24px 0 12px; display: flex; align-items: center; gap: 8px; }
 
@@ -6954,24 +6987,28 @@ function loadBrainData(isRefresh) {
 
 function loadCostOptimizerData(isRefresh) {
   var expectedNodeId = 'node-cost-optimizer';
-  fetch('/api/cost-optimization').then(function(r) { return r.json(); }).then(function(data) {
+  fetch('/api/cost-optimizer').then(function(r) { return r.json(); }).then(function(data) {
     if (!isCompModalActive(expectedNodeId)) return;
     var body = document.getElementById('comp-modal-body');
     var html = '';
 
-    // ══ SECTION 1: Cost Summary ══════════════════════════════════
-    html += '<div class="cost-optimizer-summary">';
-    html += '<div class="cost-stat-grid">';
-    html += '<div class="cost-stat"><div class="cost-label">Today</div><div class="cost-value">$' + (data.costs.today || 0).toFixed(3) + '</div></div>';
-    html += '<div class="cost-stat"><div class="cost-label">This Week</div><div class="cost-value">$' + (data.costs.week || 0).toFixed(3) + '</div></div>';
-    html += '<div class="cost-stat"><div class="cost-label">This Month</div><div class="cost-value">$' + (data.costs.month || 0).toFixed(3) + '</div></div>';
-    html += '<div class="cost-stat"><div class="cost-label">Projected Monthly</div><div class="cost-value">$' + (data.costs.projected || 0).toFixed(2) + '</div></div>';
+    // ══ SECTION 1: Cost Overview ══════════════════════════════════
+    var todayCost = data.todayCost || 0;
+    var monthCost = data.projectedMonthlyCost || 0;
+    html += '<div class="cost-overview">';
+    html += '<div class="cost-overview-header">💰 Cost Overview</div>';
+    html += '<div class="cost-overview-row">';
+    html += '<div class="cost-overview-item"><span class="cost-overview-label">Today</span><span class="cost-overview-value">$' + todayCost.toFixed(3) + '</span></div>';
+    html += '<div class="cost-overview-item"><span class="cost-overview-label">Month Projected</span><span class="cost-overview-value">$' + monthCost.toFixed(2) + '</span></div>';
     html += '</div>';
+    if (data.potentialSavings) {
+      html += '<div class="savings-highlight">🚀 ' + data.potentialSavings + '</div>';
+    }
     html += '</div>';
 
-    // Model breakdown from expensive ops
+    // Recent expensive ops
     if (data.expensiveOps && data.expensiveOps.length > 0) {
-      html += '<div style="margin-top:10px;">';
+      html += '<div style="margin-bottom:14px;">';
       data.expensiveOps.slice(0, 3).forEach(function(op) {
         html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--bg-hover);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--text-error);">';
         html += '<span style="font-size:12px;color:var(--text-secondary);">' + op.model + ' <span style="color:var(--text-muted);">· ' + op.tokens + ' tokens · ' + op.timeAgo + '</span></span>';
@@ -6981,108 +7018,91 @@ function loadCostOptimizerData(isRefresh) {
       html += '</div>';
     }
 
-    // ══ SECTION 2: Local Model Recommendations (llmfit) ══════════
-    html += '<div class="co-section">';
-    html += '<h3>🖥️ Local Model Recommendations <span style="font-size:11px;color:var(--text-muted);font-weight:400;">powered by llmfit</span></h3>';
-
-    var llm = data.llmfit || {};
-    var sys = llm.system || {};
-
-    // System specs banner
-    html += '<div class="co-sys-info">';
-    if (sys.cpu_name) {
-      html += '<div class="co-sys-item">💻 <strong>' + sys.cpu_name + '</strong></div>';
-    }
-    if (sys.total_ram_gb) {
-      html += '<div class="co-sys-item">🧠 <strong>' + sys.total_ram_gb + ' GB</strong> RAM</div>';
-    }
-    if (sys.cpu_cores) {
-      html += '<div class="co-sys-item">⚙️ <strong>' + sys.cpu_cores + ' cores</strong></div>';
-    }
-    if (sys.has_metal || (sys.cpu_name && sys.cpu_name.indexOf('Apple') !== -1)) {
-      html += '<div class="co-sys-item" style="color:#4ade80;">🚀 <strong>Metal GPU</strong> (3-5x boost)</div>';
-    }
+    // ══ SECTION 2: Hardware ═══════════════════════════════════════
+    var sys = (data.system) || {};
+    html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px;">🖥️ Your Hardware</div>';
+    html += '<div class="hw-card">';
+    if (sys.cpu) html += '<span class="hw-card-chip">' + sys.cpu + '</span>';
+    if (sys.ram_gb) html += '<span class="hw-card-chip">' + sys.ram_gb + 'GB RAM</span>';
+    if (sys.cores) html += '<span class="hw-card-chip">' + sys.cores + ' cores</span>';
+    if (sys.backend) html += '<span class="hw-card-chip green">' + sys.backend + '</span>';
     html += '</div>';
+    html += '<div class="hw-metal-notice">⚠️ llmfit doesn\'t detect Apple Metal — actual performance will be <strong>3-5x faster</strong> with Ollama\'s Metal backend</div>';
+
+    // ══ SECTION 3: Recommended Local Models ══════════════════════
+    html += '<div class="co-section">';
+    html += '<h3>🤖 Recommended Local Models <span style="font-size:11px;color:var(--text-muted);font-weight:400;">via llmfit · Metal-accelerated</span></h3>';
 
     if (!data.ollamaInstalled) {
       html += '<div class="co-ollama-prompt">';
-      html += '<div style="font-size:13px;color:#a78bfa;font-weight:600;">⚠️ Ollama not installed — install to run models locally</div>';
-      html += '<div class="co-ollama-cmd">brew install ollama  # or: curl -fsSL https://ollama.ai/install.sh | sh</div>';
-      html += '<button class="co-action-btn" onclick="navigator.clipboard.writeText(\'brew install ollama\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy Install Command\',2000);">Copy Install Command</button>';
+      html += '<div style="font-size:13px;color:#a78bfa;font-weight:600;">⚠️ Ollama not installed — install to run models locally (free!)</div>';
+      html += '<div class="co-ollama-cmd">brew install ollama</div>';
+      html += '<button class="co-action-btn" onclick="navigator.clipboard.writeText(\'brew install ollama\');this.textContent=\'✅ Copied!\';setTimeout(()=>this.textContent=\'📋 Copy Install Command\',2000);">📋 Copy Install Command</button>';
       html += '</div>';
-    } else {
-      html += '<div class="local-status-good" style="margin-bottom:10px;">✅ Ollama installed' + (data.localModels.available ? ' · ' + data.localModels.count + ' models loaded' : ' · no models running') + '</div>';
     }
 
-    if (llm.available && llm.recommendations && llm.recommendations.length > 0) {
-      html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Top picks for your M2 Pro · 32GB — Apple Silicon runs these <span style="color:#4ade80;font-weight:600;">3-5x faster</span> than llmfit estimates via Ollama+Metal</div>';
-      html += '<div class="co-model-grid">';
-      llm.recommendations.slice(0, 4).forEach(function(m) {
-        var badgeClass = (m.category || '').toLowerCase() === 'coding' ? 'coding' : 'chat';
-        var ollamaName = m.name.toLowerCase().replace(/-instruct.*$/i, '').replace(/[^a-z0-9.-]/g, '-');
-        var tpsDisplay = m.estimatedTps ? (Math.round(m.estimatedTps * 3.5)) + ' tok/s*' : '—';
-        html += '<div class="co-model-card">';
-        html += '<div class="co-model-name">' + m.name + '</div>';
-        html += '<div class="co-model-provider">' + m.provider + ' · ' + (m.parameterCount || '') + '</div>';
-        html += '<span class="co-badge ' + badgeClass + '">' + (m.category || 'Chat') + '</span>';
-        html += '<div class="co-model-stats">';
-        html += '<div class="co-model-stat"><span>Speed (Metal est.)</span><span>' + tpsDisplay + '</span></div>';
-        html += '<div class="co-model-stat"><span>RAM needed</span><span>' + (m.memoryRequiredGb || '?') + ' GB</span></div>';
-        html += '<div class="co-model-stat"><span>Context</span><span>' + (m.contextLength ? Math.round(m.contextLength/1000) + 'K' : '—') + '</span></div>';
+    var models = data.localModels || [];
+    if (models.length > 0) {
+      models.slice(0, 5).forEach(function(m) {
+        var badgeType = (m.useCase || '').toLowerCase().indexOf('cod') !== -1 ? 'coding' : 'chat';
+        var metalTps = m.estimatedTps ? Math.round(m.estimatedTps * 3.5) + ' tok/s*' : '—';
+        var ollamaCmd = 'ollama pull ' + (m.ollamaName || m.name.toLowerCase().replace(/-instruct.*/i,'').replace(/[^a-z0-9.-]/g,'-'));
+        html += '<div class="model-card">';
+        html += '<div class="model-card-header">';
+        html += '<div class="model-card-name">' + m.name + '</div>';
+        html += '<span class="model-badge ' + badgeType + '">' + (m.useCase || (badgeType === 'coding' ? 'Coding' : 'Chat')) + '</span>';
         html += '</div>';
-        html += '<div class="co-speed-note">* ~3-5x faster with Ollama+Metal on Apple Silicon</div>';
-        html += '<button class="co-action-btn" onclick="navigator.clipboard.writeText(\'ollama pull ' + ollamaName + '\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 ollama pull ' + ollamaName + '\',2000);">📋 ollama pull ' + ollamaName + '</button>';
-        html += '<a class="co-action-btn secondary" href="https://huggingface.co/' + m.fullName + '" target="_blank" style="display:block;margin-top:4px;text-decoration:none;">🔗 View on HuggingFace</a>';
+        html += '<div class="model-card-stats">';
+        html += '<div class="model-card-stat"><span class="model-card-stat-label">Score</span><span class="model-card-stat-value">' + (m.score || '—') + '</span></div>';
+        html += '<div class="model-card-stat"><span class="model-card-stat-label">Speed (Metal)</span><span class="model-card-stat-value">' + metalTps + '</span></div>';
+        html += '<div class="model-card-stat"><span class="model-card-stat-label">RAM</span><span class="model-card-stat-value">' + (m.ramRequired || (m.memoryRequiredGb ? m.memoryRequiredGb + 'GB' : '—')) + '</span></div>';
+        if (m.savingsEstimate) html += '<div class="model-card-stat"><span class="model-card-stat-label">Savings est.</span><span class="model-card-stat-value" style="color:#4ade80;">' + m.savingsEstimate + '</span></div>';
+        html += '</div>';
+        html += '<div class="model-install-cmd" onclick="navigator.clipboard.writeText(\'' + ollamaCmd + '\');this.querySelector(\'span.cmd-text\').textContent=\'✅ Copied!\';setTimeout(()=>this.querySelector(\'span.cmd-text\').textContent=\'' + ollamaCmd + '\',2000);">';
+        html += '<span class="cmd-text">' + ollamaCmd + '</span>';
+        html += '<span style="color:#4ade80;font-size:10px;flex-shrink:0;">📥 Copy</span>';
+        html += '</div>';
+        if (m.fullName) html += '<a style="display:block;margin-top:5px;font-size:10px;color:#60a5fa;text-decoration:none;" href="https://huggingface.co/' + m.fullName + '" target="_blank">🔗 View on HuggingFace</a>';
         html += '</div>';
       });
-      html += '</div>';
-    } else if (!llm.available) {
-      html += '<div style="color:var(--text-muted);font-size:13px;padding:10px;">llmfit not available — install with: <code>pip install llmfit</code></div>';
+      html += '<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">* Speed estimated with Ollama Metal backend (3-5x llmfit baseline)</div>';
+    } else {
+      html += '<div style="color:var(--text-muted);font-size:13px;padding:10px 0;">llmfit not available — install with: <code>pip install llmfit</code></div>';
     }
     html += '</div>';
 
-    // ══ SECTION 3: Savings Opportunities ═════════════════════════
-    if (data.savingsOpportunities && data.savingsOpportunities.length > 0) {
+    // ══ SECTION 4: Task Recommendations ══════════════════════════
+    var taskRecs = data.taskRecommendations || [];
+    if (taskRecs.length > 0) {
       html += '<div class="co-section">';
-      html += '<h3>💡 Savings Opportunities</h3>';
-      data.savingsOpportunities.forEach(function(opp) {
-        html += '<div class="co-savings-row">';
-        html += '<div class="co-savings-title">' + opp.task + '</div>';
-        html += '<div class="co-savings-detail">Current: <strong>' + opp.currentModel + '</strong> → Suggested: <strong>' + opp.suggestedModel + '</strong></div>';
-        html += '<div class="co-savings-detail" style="color:var(--text-muted);">' + opp.reason + '</div>';
-        html += '<div class="co-savings-amount">Est. savings: ' + opp.estimatedSavings + '</div>';
+      html += '<h3>📋 Task Recommendations</h3>';
+      taskRecs.forEach(function(rec) {
+        html += '<div class="task-rec">';
+        html += '<div class="task-rec-title">' + rec.task + '</div>';
+        if (rec.estimatedSavings) html += '<div class="task-rec-savings">' + rec.estimatedSavings + '</div>';
+        html += '<div class="task-rec-arrow">';
+        if (rec.currentModel) html += '<span style="color:var(--text-muted);">' + rec.currentModel + '</span>';
+        if (rec.suggestedLocal) html += ' → <span style="color:#4ade80;font-weight:600;">' + rec.suggestedLocal + '</span>';
+        else html += ' → <span style="color:#4ade80;font-weight:600;">keep frontier ✓</span>';
+        html += '</div>';
+        if (rec.reason) html += '<div class="task-rec-reason">' + rec.reason + '</div>';
         html += '</div>';
       });
       html += '</div>';
     }
 
-    // ══ SECTION 4: Quick Actions ══════════════════════════════════
+    // ══ SECTION 5: Quick Actions ══════════════════════════════════
     html += '<div class="co-section">';
     html += '<h3>⚙️ Quick Actions</h3>';
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-    html += '<button class="co-action-btn" style="width:auto;padding:6px 14px;" onclick="navigator.clipboard.writeText(\'brew install ollama\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy Ollama Install\',2000);">📋 Copy Ollama Install</button>';
-    html += '<button class="co-action-btn secondary" style="width:auto;padding:6px 14px;" onclick="navigator.clipboard.writeText(\'ollama serve\');this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'📋 Copy: ollama serve\',2000);">📋 Copy: ollama serve</button>';
-    html += '<a class="co-action-btn secondary" style="width:auto;padding:6px 14px;text-decoration:none;display:inline-block;" href="https://ollama.com/search" target="_blank">🔍 Browse Ollama Models</a>';
+    html += '<button class="co-action-btn" style="width:auto;padding:6px 14px;" onclick="navigator.clipboard.writeText(\'brew install ollama\');this.textContent=\'✅ Copied!\';setTimeout(()=>this.textContent=\'📋 Install Ollama\',2000);">📋 Install Ollama</button>';
+    html += '<button class="co-action-btn secondary" style="width:auto;padding:6px 14px;" onclick="navigator.clipboard.writeText(\'ollama serve\');this.textContent=\'✅ Copied!\';setTimeout(()=>this.textContent=\'📋 ollama serve\',2000);">📋 ollama serve</button>';
+    html += '<a class="co-action-btn secondary" style="width:auto;padding:6px 14px;text-decoration:none;display:inline-block;" href="https://ollama.com/search" target="_blank">🔍 Browse Models</a>';
     html += '</div>';
-
-    // Also show cost recommendations
-    if (data.recommendations && data.recommendations.length > 0) {
-      html += '<div style="margin-top:14px;">';
-      data.recommendations.forEach(function(rec) {
-        var priority = rec.priority === 'high' ? '🔥' : rec.priority === 'medium' ? '⚡' : '💡';
-        var bgClass = rec.priority === 'high' ? 'bg-error' : rec.priority === 'medium' ? 'bg-warning' : 'bg-hover';
-        html += '<div class="recommendation" style="padding:10px 12px;margin-bottom:6px;background:var(--' + bgClass + ');border-radius:8px;">';
-        html += '<div style="font-weight:600;margin-bottom:2px;font-size:13px;">' + priority + ' ' + rec.title + '</div>';
-        html += '<div style="font-size:12px;color:var(--text-secondary);">' + rec.description + '</div>';
-        if (rec.action) html += '<div style="font-size:11px;color:var(--text-muted);font-family:monospace;margin-top:4px;">' + rec.action + '</div>';
-        html += '</div>';
-      });
-      html += '</div>';
-    }
     html += '</div>';
 
     body.innerHTML = html;
-    document.getElementById('comp-modal-footer').textContent = 'Auto-refreshing · Last updated: ' + new Date().toLocaleTimeString() + (data.llmfitAvailable ? ' · llmfit ✓' : '');
+    document.getElementById('comp-modal-footer').textContent = 'Auto-refreshing · Last updated: ' + new Date().toLocaleTimeString() + ' · llmfit ✓ · Metal backend';
   }).catch(function(e) {
     if (!isCompModalActive(expectedNodeId)) return;
     if (!isRefresh) {
@@ -13251,6 +13271,163 @@ def api_health_stream():
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@app.route('/api/llmfit')
+def api_llmfit():
+    """Passthrough: run llmfit recommend and return raw JSON."""
+    import shutil
+    if not shutil.which('llmfit'):
+        return jsonify({'error': 'llmfit not installed', 'models': [], 'system': {}})
+    try:
+        result = subprocess.run(
+            ['llmfit', 'recommend', '--json', '--limit', '20'],
+            capture_output=True, text=True, timeout=20
+        )
+        data = json.loads(result.stdout) if result.returncode == 0 else {}
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e), 'models': [], 'system': {}})
+
+
+@app.route('/api/cost-optimizer')
+def api_cost_optimizer():
+    """Enhanced cost optimizer: llmfit recommendations + task-level suggestions."""
+    import shutil
+    try:
+        # Cost data from existing helpers
+        costs = _get_cost_summary()
+        expensive_ops = _get_expensive_operations()
+        ollama_installed = shutil.which('ollama') is not None
+
+        # Run llmfit
+        llmfit_raw = {}
+        if shutil.which('llmfit'):
+            try:
+                r = subprocess.run(['llmfit', 'recommend', '--json', '--limit', '10'],
+                                   capture_output=True, text=True, timeout=20)
+                if r.returncode == 0:
+                    llmfit_raw = json.loads(r.stdout)
+            except Exception:
+                pass
+
+        sys_info = llmfit_raw.get('system', {})
+        cpu = sys_info.get('cpu_name', 'Apple M2 Pro')
+        is_apple = 'apple' in cpu.lower() or 'M2' in cpu or 'M1' in cpu or 'M3' in cpu or 'M4' in cpu
+
+        system_out = {
+            'cpu': cpu or 'Apple M2 Pro',
+            'cores': sys_info.get('cpu_cores', 12),
+            'ram_gb': sys_info.get('total_ram_gb', 32),
+            'backend': 'Apple Metal (unified)' if is_apple else sys_info.get('backend', 'CPU'),
+        }
+
+        # Map llmfit models to localModels format
+        use_case_map = {
+            'coding': ['coding', 'code generation'],
+            'chat': ['chat', 'instruction following'],
+        }
+        ollama_shortcuts = {
+            'deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct': 'deepseek-coder-v2:16b',
+            'lmstudio-community/Qwen3-4B-Instruct-2507-MLX-8bit': 'qwen3:4b',
+            'bigcode/starcoder2-7b': 'starcoder2:7b',
+            'alpindale/Llama-3.2-1B-Instruct': 'llama3.2:1b',
+        }
+        savings_by_cat = {'coding': '~$0.50/day for coding crons', 'chat': '~$0.30/day for heartbeats'}
+
+        local_models = []
+        for m in llmfit_raw.get('models', [])[:8]:
+            full_name = m.get('name', '')
+            short = full_name.split('/')[-1] if '/' in full_name else full_name
+            cat = (m.get('category') or 'Chat').lower()
+            use_case_str = m.get('use_case', cat)
+            ollama_name = ollama_shortcuts.get(full_name)
+            if not ollama_name:
+                ollama_name = short.lower().replace('-instruct','').replace('-fp8','').replace('-awq','').replace('-mlx-8bit','')
+                ollama_name = ''.join(c if c in 'abcdefghijklmnopqrstuvwxyz0123456789.-:' else '-' for c in ollama_name).strip('-')
+            tps = m.get('estimated_tps', 0) or 0
+            local_models.append({
+                'name': short,
+                'fullName': full_name,
+                'useCase': use_case_str,
+                'estimatedTps': round(tps * 3.5, 1),  # Metal multiplier
+                'ramRequired': f"{m.get('memory_required_gb', '?')}GB",
+                'score': m.get('score', 0),
+                'ollamaName': ollama_name,
+                'savingsEstimate': savings_by_cat.get(cat, '~$0.20/day'),
+                'memoryRequiredGb': m.get('memory_required_gb', 0),
+            })
+
+        # Task recommendations
+        task_recs = []
+        # Check cron jobs
+        try:
+            crons = _get_crons()
+            for cron in crons[:5]:
+                model = cron.get('model', cron.get('modelRef', 'claude-sonnet-4-6'))
+                name = cron.get('name', cron.get('label', 'Cron job'))
+                prompt = (cron.get('prompt', '') or '').lower()
+                is_heartbeat = any(w in prompt for w in ['heartbeat', 'check', 'status', 'health', 'ping'])
+                if is_heartbeat or not prompt.strip():
+                    task_recs.append({
+                        'task': f'Cron: {name}',
+                        'currentModel': model or 'claude-sonnet-4-6',
+                        'suggestedLocal': 'qwen3:4b',
+                        'reason': "Simple periodic checks don't need frontier models",
+                        'estimatedSavings': '~$2-5/month',
+                    })
+        except Exception:
+            pass
+
+        # Generic recommendations
+        task_recs.append({
+            'task': 'Heartbeat / periodic checks',
+            'currentModel': 'claude-sonnet-4-6',
+            'suggestedLocal': 'qwen3:4b',
+            'reason': "Heartbeats (email, calendar, weather) work well with tiny fast models",
+            'estimatedSavings': '~$2-5/month',
+        })
+        task_recs.append({
+            'task': 'Coding sub-agents',
+            'currentModel': 'claude-sonnet-4-6',
+            'suggestedLocal': 'deepseek-coder-v2:16b',
+            'reason': 'Well-scoped coding tasks (linting, formatting, small fixes) run locally',
+            'estimatedSavings': '~$3-8/month',
+        })
+        task_recs.append({
+            'task': 'Main conversation (Diya)',
+            'currentModel': 'claude-sonnet-4-6',
+            'suggestedLocal': None,
+            'reason': 'Complex reasoning, tool use, and planning still benefit from frontier models',
+            'estimatedSavings': 'Keep as-is',
+        })
+
+        today = costs.get('today', 0) or 0
+        projected = costs.get('projected', 0) or (today * 30)
+
+        return jsonify({
+            'system': system_out,
+            'localModels': local_models,
+            'taskRecommendations': task_recs[:6],
+            'todayCost': today,
+            'projectedMonthlyCost': projected,
+            'potentialSavings': '60-80% with local models for crons/heartbeats',
+            'expensiveOps': expensive_ops,
+            'ollamaInstalled': ollama_installed,
+            'llmfitAvailable': bool(llmfit_raw),
+        })
+    except Exception as e:
+        return jsonify({
+            'system': {'cpu': 'Apple M2 Pro', 'cores': 12, 'ram_gb': 32, 'backend': 'Apple Metal (unified)'},
+            'localModels': [],
+            'taskRecommendations': [],
+            'todayCost': 0,
+            'projectedMonthlyCost': 0,
+            'potentialSavings': 'Install llmfit for recommendations',
+            'error': str(e),
+            'ollamaInstalled': False,
+            'llmfitAvailable': False,
+        })
 
 
 @app.route('/api/cost-optimization')
