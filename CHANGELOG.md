@@ -1,3 +1,10 @@
+## [0.10.7] — 2026-02-28
+
+### Fixed
+- Port conflict check moved to daemon mode only — foreground mode was false-positive blocking all ports
+
+---
+
 ## [0.10.6] — 2026-02-28
 
 ### Fixed
