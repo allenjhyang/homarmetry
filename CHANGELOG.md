@@ -1,3 +1,11 @@
+## [0.10.6] — 2026-02-28
+
+### Fixed
+- Port conflict: only kill our own stale clawmetry process, not arbitrary apps on the same port
+- Clear error message if another app is already using the port
+
+---
+
 ## [0.10.5] — 2026-02-28
 
 ### Fixed
