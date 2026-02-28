@@ -1651,6 +1651,27 @@ DASHBOARD_HTML = r"""
   .cron-expand .run-status-error { color: var(--text-error); }
   .cron-item { cursor: pointer; }
   .cron-config-detail { margin-top: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px; font-family: 'SF Mono','Fira Code',monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+  .cron-prompt-block { margin-top: 8px; padding: 10px 12px; background: var(--bg-secondary); border-radius: 6px; font-family: 'SF Mono','Fira Code',monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); line-height: 1.5; }
+  .cron-prompt-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 4px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .cron-prompt-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+
+  /* Cron Logs tab */
+  .cronlog-item { padding: 12px; border-bottom: 1px solid var(--border-secondary); cursor: pointer; }
+  .cronlog-item:last-child { border-bottom: none; }
+  .cronlog-item:hover { background: rgba(255,255,255,0.02); }
+  .cronlog-header { display: flex; justify-content: space-between; align-items: center; }
+  .cronlog-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+  .cronlog-time { font-size: 12px; color: var(--text-muted); }
+  .cronlog-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .cronlog-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .cronlog-status.ok { background: var(--bg-success); color: var(--text-success); }
+  .cronlog-status.error { background: var(--bg-error); color: var(--text-error); }
+  .cronlog-expand { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-secondary); font-size: 12px; }
+  .cronlog-prompt { padding: 10px 12px; background: var(--bg-secondary); border-radius: 6px; font-family: 'SF Mono','Fira Code',monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); line-height: 1.5; max-height: 200px; overflow: hidden; position: relative; }
+  .cronlog-prompt.cronlog-prompt-collapsed { max-height: 80px; }
+  .cronlog-prompt-toggle { display: inline-block; margin-top: 4px; font-size: 11px; color: var(--text-accent); cursor: pointer; }
+  .cronlog-prompt-toggle:hover { text-decoration: underline; }
+  .cronlog-error { margin-top: 8px; padding: 8px 12px; background: var(--bg-error); border-radius: 6px; color: var(--text-error); font-size: 12px; word-break: break-word; }
 
   .log-viewer { background: var(--log-bg); border: 1px solid var(--border-primary); border-radius: 8px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; padding: 12px; max-height: 500px; overflow-y: auto; -webkit-overflow-scrolling: touch; white-space: pre-wrap; word-break: break-all; }
   .log-line { padding: 1px 0; }
@@ -2451,6 +2472,7 @@ function clawmetryLogout(){
     <div class="nav-tab" onclick="switchTab('flow')">Flow</div>
     <div class="nav-tab active" onclick="switchTab('overview')">Overview</div>
     <div class="nav-tab" onclick="switchTab('crons')">Crons</div>
+    <div class="nav-tab" onclick="switchTab('cronlogs')">Cron Logs</div>
     <div class="nav-tab" onclick="switchTab('usage')">Tokens</div>
     <div class="nav-tab" onclick="switchTab('memory')">Memory</div>
     <!-- History tab hidden until mature -->
@@ -2757,6 +2779,14 @@ function clawmetryLogout(){
     <!-- New Cron Job button disabled until gateway CRUD is properly tested -->
   </div>
   <div class="card" id="crons-list">Loading...</div>
+</div>
+
+<!-- CRON LOGS -->
+<div class="page" id="page-cronlogs">
+  <div class="refresh-bar">
+    <button class="refresh-btn" onclick="loadCronLogs()">&#x21bb; Refresh</button>
+  </div>
+  <div class="card" id="cronlogs-list">Loading...</div>
 </div>
 
 <!-- Cron Edit/Create Modal -->
@@ -3379,6 +3409,7 @@ function switchTab(name) {
   if (name === 'overview') loadAll();
   if (name === 'usage') loadUsage();
   if (name === 'crons') loadCrons();
+  if (name === 'cronlogs') loadCronLogs();
   if (name === 'memory') loadMemory();
   if (name === 'transcripts') loadTranscripts();
   if (name === 'flow') initFlow();
@@ -4332,33 +4363,29 @@ async function loadCrons() {
   renderCrons();
 }
 
+function getCronPrompt(j) {
+  if (j.payload) {
+    if (j.payload.text) return j.payload.text;
+    if (j.payload.message) return j.payload.message;
+    if (j.payload.prompt) return j.payload.prompt;
+  }
+  if (j.config && j.config.prompt) return j.config.prompt;
+  return null;
+}
+
 function renderCrons() {
   var html = '';
   _cronJobs.forEach(function(j) {
-    var status = j.state && j.state.lastStatus ? j.state.lastStatus : 'pending';
     var isEnabled = j.enabled !== false;
     var disabledClass = isEnabled ? '' : ' cron-disabled';
     var expanded = _cronExpanded[j.id];
 
-    // Status badge -- show disabled if not enabled
-    var badgeLabel = isEnabled ? status : 'disabled';
-    var badgeClass = isEnabled ? status : 'pending';
-
     html += '<div class="cron-item' + disabledClass + '" onclick="toggleCronExpand(\'' + escHtml(j.id) + '\')">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
     html += '<div class="cron-name">' + escHtml(j.name || j.id) + '</div>';
-    html += '<span class="cron-status ' + badgeClass + '">' + badgeLabel + '</span>';
-    if (status === 'error') {
-      var errMsg = (j.state && j.state.lastError) ? escHtml(j.state.lastError) : 'Unknown error';
-      var errTime = (j.state && j.state.lastRunAtMs) ? new Date(j.state.lastRunAtMs).toLocaleString() : 'Unknown';
-      var consecutiveFails = (j.state && j.state.consecutiveFailures) ? j.state.consecutiveFailures : '';
-      html += '<span class="cron-error-actions">';
-      html += '<span class="cron-info-icon" title="Error details" onclick="event.stopPropagation();showCronError(this,\'' + errMsg.replace(/'/g,'\\&#39;').replace(/"/g,'&quot;') + '\',\'' + escHtml(errTime) + '\',' + (consecutiveFails||'null') + ')">&#x2139;&#xFE0F;</span>';
-      html += '<button class="cron-fix-btn" onclick="event.stopPropagation();confirmCronFix(\'' + escHtml(j.id) + '\',\'' + escHtml(j.name||j.id).replace(/'/g,'\\&#39;') + '\')">&#x1F527; Fix</button>';
-      html += '</span>';
-    }
+    if (!isEnabled) html += '<span class="cron-status pending">disabled</span>';
     html += '</div>';
-    html += '<div class="cron-schedule">' + formatSchedule(j.schedule) + '</div>';
+    html += '<div class="cron-schedule">' + formatScheduleHuman(j.schedule) + '</div>';
     html += '<div class="cron-meta">';
     if (j.state && j.state.lastRunAtMs) html += 'Last: ' + timeAgo(j.state.lastRunAtMs);
     if (j.state && j.state.nextRunAtMs) html += ' &middot; Next: ' + formatTime(j.state.nextRunAtMs);
@@ -4375,14 +4402,20 @@ function renderCrons() {
     // html += '<button class="cron-btn-delete" onclick="cronConfirmDelete(\'' + escHtml(j.id) + '\',\'' + escHtml(j.name||j.id).replace(/'/g,'\\&#39;') + '\')">&#x1F5D1; Delete</button>';
     html += '</div>';
 
-    // Expanded section
+    // Expanded section — show prompt details (no run history)
     if (expanded) {
       html += '<div class="cron-expand" id="cron-expand-' + escHtml(j.id) + '">';
-      if (j.state && j.state.lastError) {
-        html += '<div style="color:var(--text-error);margin-bottom:6px;"><strong>Last error:</strong> ' + escHtml(j.state.lastError) + '</div>';
+      var prompt = getCronPrompt(j);
+      if (prompt) {
+        html += '<div class="cron-prompt-label">Prompt</div>';
+        html += '<div class="cron-prompt-block">' + escHtml(prompt) + '</div>';
       }
-      html += '<div id="cron-runs-' + escHtml(j.id) + '">Loading run history...</div>';
-      if (j.payload || j.config) {
+      var meta = [];
+      if (j.payload && j.payload.channel) meta.push('Channel: ' + escHtml(j.payload.channel));
+      if (j.payload && j.payload.model) meta.push('Model: ' + escHtml(j.payload.model));
+      if (j.config && j.config.model) meta.push('Model: ' + escHtml(j.config.model));
+      if (meta.length) html += '<div class="cron-prompt-meta">' + meta.join(' &middot; ') + '</div>';
+      if (!prompt && (j.payload || j.config)) {
         html += '<div class="cron-config-detail">' + escHtml(JSON.stringify(j.payload || j.config || {}, null, 2)) + '</div>';
       }
       html += '</div>';
@@ -4391,11 +4424,6 @@ function renderCrons() {
     html += '</div>';
   });
   document.getElementById('crons-list').innerHTML = html || 'No cron jobs';
-
-  // Load run history for expanded items
-  Object.keys(_cronExpanded).forEach(function(id) {
-    if (_cronExpanded[id]) loadCronRuns(id);
-  });
 }
 
 function toggleCronExpand(jobId) {
@@ -4433,6 +4461,164 @@ async function loadCronRuns(jobId) {
     var el = document.getElementById('cron-runs-' + jobId);
     if (el) el.innerHTML = '<div style="color:var(--text-error);">Failed to load runs</div>';
   }
+}
+
+// --- Cron Logs tab ---
+var _cronLogsData = [];
+var _cronLogsExpanded = {};
+var _cronLogsPromptExpanded = {};
+
+async function loadCronLogs() {
+  try {
+    var cronsData = await fetch('/api/crons').then(function(r) { return r.json(); });
+    var jobs = cronsData.jobs || cronsData.crons || [];
+    var allRuns = [];
+    var jobsWithGatewayRuns = {};
+
+    // Try fetching detailed run history from gateway for each job
+    var fetches = jobs.map(function(j) {
+      return fetch('/api/cron/' + encodeURIComponent(j.id) + '/runs')
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (!data) return;
+          var runs = data.runs || [];
+          if (runs.length > 0) jobsWithGatewayRuns[j.id] = true;
+          runs.forEach(function(r) {
+            r._jobName = j.name || j.id;
+            r._jobId = j.id;
+            r._prompt = getCronPrompt(j);
+          });
+          allRuns = allRuns.concat(runs);
+        })
+        .catch(function() { /* gateway unavailable, will use state fallback */ });
+    });
+    await Promise.all(fetches);
+
+    // Also try history DB for additional data
+    try {
+      var histData = await fetch('/api/history/crons?from=' + (Date.now()/1000 - 86400*7) + '&to=' + (Date.now()/1000)).then(function(r) { return r.ok ? r.json() : null; });
+      if (histData && histData.data && histData.data.length) {
+        var jobMap = {};
+        jobs.forEach(function(j) { jobMap[j.id] = j; });
+        histData.data.forEach(function(h) {
+          var j = jobMap[h.job_id];
+          if (!j) return;
+          // Avoid duplicates: skip if we already have a gateway run at the same timestamp
+          var ts = h.ts || h.started_at || h.timestamp;
+          if (!ts) return;
+          var tsMs = ts < 1e12 ? ts * 1000 : ts;
+          var isDupe = allRuns.some(function(r) {
+            return r._jobId === h.job_id && Math.abs((r.startedAt || r.ts || 0) - tsMs) < 2000;
+          });
+          if (isDupe) return;
+          allRuns.push({
+            _jobName: j.name || j.id,
+            _jobId: j.id,
+            _prompt: getCronPrompt(j),
+            startedAt: tsMs,
+            ts: tsMs,
+            status: h.status || 'unknown',
+            durationMs: h.duration_ms || h.durationMs || null,
+            error: h.error || null,
+            output: h.output || null
+          });
+        });
+      }
+    } catch(e) { /* history DB not available */ }
+
+    // For any job that had NO gateway runs and NO history runs, synthesize
+    // a "last run" entry from j.state so there's always something to show.
+    jobs.forEach(function(j) {
+      if (jobsWithGatewayRuns[j.id]) return;
+      // Check if history already added runs for this job
+      var hasRun = allRuns.some(function(r) { return r._jobId === j.id; });
+      if (hasRun) return;
+      if (j.state && j.state.lastRunAtMs) {
+        allRuns.push({
+          _jobName: j.name || j.id,
+          _jobId: j.id,
+          _prompt: getCronPrompt(j),
+          startedAt: j.state.lastRunAtMs,
+          ts: j.state.lastRunAtMs,
+          status: j.state.lastStatus || 'unknown',
+          durationMs: j.state.lastDurationMs || null,
+          error: j.state.lastError || null,
+          output: null
+        });
+      }
+    });
+
+    allRuns.sort(function(a, b) {
+      var ta = a.startedAt || a.ts || 0;
+      var tb = b.startedAt || b.ts || 0;
+      return tb - ta;
+    });
+    _cronLogsData = allRuns;
+    renderCronLogs();
+  } catch(e) {
+    document.getElementById('cronlogs-list').innerHTML = '<div style="color:var(--text-error);">Failed to load cron logs</div>';
+  }
+}
+
+function renderCronLogs() {
+  var runs = _cronLogsData;
+  if (runs.length === 0) {
+    document.getElementById('cronlogs-list').innerHTML = '<div style="color:var(--text-muted);padding:16px;">No cron run history available</div>';
+    return;
+  }
+  var html = '<div style="padding:8px 12px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border-secondary);">' + runs.length + ' run' + (runs.length !== 1 ? 's' : '') + '</div>';
+  runs.forEach(function(r, idx) {
+    var key = idx;
+    var expanded = _cronLogsExpanded[key];
+    var statusCls = r.status === 'ok' ? 'ok' : 'error';
+    var ts = new Date(r.startedAt || r.ts).toLocaleString();
+    var dur = r.durationMs ? (r.durationMs/1000).toFixed(1) + 's' : '';
+
+    html += '<div class="cronlog-item" onclick="toggleCronLogExpand(' + key + ')">';
+    html += '<div class="cronlog-header">';
+    html += '<div><span class="cronlog-name">' + escHtml(r._jobName) + '</span>';
+    if (dur) html += '<span class="cronlog-meta" style="margin-left:8px;display:inline;">' + dur + '</span>';
+    html += '</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;">';
+    html += '<span class="cronlog-time">' + ts + '</span>';
+    html += '<span class="cronlog-status ' + statusCls + '">' + (r.status || 'unknown') + '</span>';
+    html += '</div>';
+    html += '</div>';
+
+    if (expanded) {
+      html += '<div class="cronlog-expand">';
+      if (r._prompt) {
+        var promptText = escHtml(r._prompt);
+        var isLong = r._prompt.length > 200;
+        var promptExpanded = _cronLogsPromptExpanded[key];
+        html += '<div class="cron-prompt-label">Prompt</div>';
+        html += '<div class="cronlog-prompt' + (isLong && !promptExpanded ? ' cronlog-prompt-collapsed' : '') + '">' + promptText + '</div>';
+        if (isLong) {
+          html += '<span class="cronlog-prompt-toggle" onclick="event.stopPropagation();toggleCronLogPrompt(' + key + ')">' + (promptExpanded ? 'Show less' : 'Show more') + '</span>';
+        }
+      }
+      if (r.status === 'error' && r.error) {
+        html += '<div class="cronlog-error">' + escHtml(r.error) + '</div>';
+      }
+      if (r.output) {
+        html += '<div style="margin-top:8px;font-size:11px;padding:8px;background:var(--bg-secondary);border-radius:6px;color:var(--text-muted);white-space:pre-wrap;max-height:120px;overflow:auto;">' + escHtml(typeof r.output === 'string' ? r.output : JSON.stringify(r.output)).substring(0,500) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+  });
+  document.getElementById('cronlogs-list').innerHTML = html;
+}
+
+function toggleCronLogExpand(key) {
+  _cronLogsExpanded[key] = !_cronLogsExpanded[key];
+  renderCronLogs();
+}
+
+function toggleCronLogPrompt(key) {
+  _cronLogsPromptExpanded[key] = !_cronLogsPromptExpanded[key];
+  renderCronLogs();
 }
 
 async function cronRunNow(jobId) {
@@ -4629,6 +4815,52 @@ function formatSchedule(s) {
   if (s.kind === 'cron') return 'cron: ' + s.expr + (s.tz ? ' (' + s.tz + ')' : '');
   if (s.kind === 'every') return 'every ' + (s.everyMs/60000) + ' min';
   if (s.kind === 'at') return 'once at ' + formatTime(s.atMs);
+  return JSON.stringify(s);
+}
+
+function formatScheduleHuman(s) {
+  var tz = s.tz ? ' (' + s.tz + ')' : '';
+  if (s.kind === 'every') {
+    var mins = s.everyMs / 60000;
+    if (mins < 60) return 'Every ' + mins + ' minute' + (mins !== 1 ? 's' : '') + tz;
+    var hrs = mins / 60;
+    if (hrs === Math.floor(hrs)) return 'Every ' + hrs + ' hour' + (hrs !== 1 ? 's' : '') + tz;
+    return 'Every ' + mins + ' minutes' + tz;
+  }
+  if (s.kind === 'at') return 'Once at ' + formatTime(s.atMs) + tz;
+  if (s.kind === 'cron' && s.expr) {
+    var p = s.expr.trim().split(/\s+/);
+    if (p.length === 5) {
+      var min = p[0], hr = p[1], dom = p[2], mon = p[3], dow = p[4];
+      // Every N minutes: */N * * * *
+      if (min.indexOf('/') !== -1 && hr === '*' && dom === '*' && mon === '*' && dow === '*') {
+        var n = parseInt(min.split('/')[1]);
+        if (!isNaN(n)) return 'Every ' + n + ' minute' + (n !== 1 ? 's' : '') + tz;
+      }
+      // Every hour at :MM: MM * * * *
+      if (/^\d+$/.test(min) && hr === '*' && dom === '*' && mon === '*' && dow === '*') {
+        return 'Every hour at :' + min.padStart(2, '0') + tz;
+      }
+      // Daily at HH:MM: MM HH * * *
+      if (/^\d+$/.test(min) && /^\d+$/.test(hr) && dom === '*' && mon === '*' && dow === '*') {
+        return 'Daily at ' + hr.padStart(2, '0') + ':' + min.padStart(2, '0') + tz;
+      }
+      // Specific weekdays: MM HH * * 1-5 or MM HH * * 0,6 etc
+      if (/^\d+$/.test(min) && /^\d+$/.test(hr) && dom === '*' && mon === '*' && dow !== '*') {
+        var dayNames = {0:'Sun',1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat'};
+        if (dow === '1-5') return 'Weekdays at ' + hr.padStart(2,'0') + ':' + min.padStart(2,'0') + tz;
+        if (dow === '0,6') return 'Weekends at ' + hr.padStart(2,'0') + ':' + min.padStart(2,'0') + tz;
+        var days = dow.split(',').map(function(d) { return dayNames[d.trim()] || d; }).join(', ');
+        return days + ' at ' + hr.padStart(2,'0') + ':' + min.padStart(2,'0') + tz;
+      }
+      // Every hour: 0 * * * *
+      if (min === '0' && hr === '*' && dom === '*' && mon === '*' && dow === '*') {
+        return 'Every hour at :00' + tz;
+      }
+    }
+    // Fallback to raw expression
+    return s.expr + tz;
+  }
   return JSON.stringify(s);
 }
 
