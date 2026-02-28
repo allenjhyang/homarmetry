@@ -5123,10 +5123,15 @@ function toggleMsg(idx) {
   }
 }
 
+var _overviewRefreshRunning = false;
 function startOverviewRefresh() {
-  loadAll();
+  // Don't fire loadAll() immediately — bootDashboard already called it
   if (window._overviewTimer) clearInterval(window._overviewTimer);
-  window._overviewTimer = setInterval(loadAll, 10000);
+  window._overviewTimer = setInterval(async function() {
+    if (_overviewRefreshRunning) return;
+    _overviewRefreshRunning = true;
+    try { await loadAll(); } finally { _overviewRefreshRunning = false; }
+  }, 10000);
   loadMainActivity();
   if (window._mainActivityTimer) clearInterval(window._mainActivityTimer);
   window._mainActivityTimer = setInterval(loadMainActivity, 5000);
@@ -8056,6 +8061,27 @@ function finishBootOverlay() {
 }
 
 async function bootDashboard() {
+  // Check auth first — if not valid, show login and abort boot
+  try {
+    var stored = localStorage.getItem('clawmetry-token');
+    var authRes = await fetch('/api/auth/check' + (stored ? '?token=' + encodeURIComponent(stored) : ''));
+    var authData = await authRes.json();
+    if (authData.needsSetup) {
+      document.getElementById('login-overlay').style.display = 'none';
+      var gwo = document.getElementById('gw-setup-overlay');
+      gwo.dataset.mandatory = 'true';
+      document.getElementById('gw-setup-close').style.display = 'none';
+      gwo.style.display = 'flex';
+      finishBootOverlay();
+      return;
+    }
+    if (authData.authRequired && !authData.valid) {
+      document.getElementById('login-overlay').style.display = 'flex';
+      finishBootOverlay();
+      return;
+    }
+  } catch(e) {}
+
   setBootStep('overview', 'loading', 'Loading overview + model context');
   var okOverview = await loadAll();
   setBootStep('overview', okOverview ? 'done' : 'fail', okOverview ? 'Overview ready' : 'Overview delayed');
