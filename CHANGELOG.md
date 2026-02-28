@@ -1,3 +1,10 @@
+## [0.10.3] — 2026-02-28
+
+### Fixed
+- Architecture diagram boxes broken due to emoji double-width characters — switched to pure ASCII +---+ style
+
+---
+
 # Changelog
 
 All notable changes to ClawMetry are documented here.
